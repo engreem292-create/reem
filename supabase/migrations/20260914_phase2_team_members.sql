@@ -27,10 +27,11 @@ set search_path = public
 as '
 begin
   if new.assigned_to is null then
-    select assigned_to
-    into new.assigned_to
-    from public.projects
-    where id = new.project_id;
+    new.assigned_to := (
+      select p.assigned_to
+      from public.projects p
+      where p.id = new.project_id
+    );
   end if;
 
   return new;
