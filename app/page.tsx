@@ -2050,6 +2050,10 @@ if (!session) {
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-6 py-4 text-left">
+                          SN
+                        </th>
+
+                        <th className="px-6 py-4 text-left">
                           Project
                         </th>
 
@@ -2088,6 +2092,10 @@ if (!session) {
                               key={followUp.id}
                               className="border-t border-gray-100"
                             >
+                              <td className="px-6 py-4 font-medium">
+                                {project?.sn || "-"}
+                              </td>
+
                               <td className="px-6 py-4 font-medium">
                                 {project?.project_name ||
                                   "-"}
