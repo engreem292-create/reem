@@ -2,8 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import TeamMembersSection from "@/app/components/TeamMembersSection";
 
-type Page = "dashboard" | "projects" | "customers" | "followups";
+type Page =
+  | "dashboard"
+  | "projects"
+  | "customers"
+  | "team"
+  | "followups";
 type ProjectView = "active" | "hidden" | "all";
 type ProjectSort =
   | "created_desc"
@@ -125,6 +131,7 @@ type Project = {
 type FollowUp = {
   id: string;
   project_id: string;
+  assigned_to: string | null;
   follow_up_date: string | null;
   notes: string | null;
   completed: boolean;
@@ -161,6 +168,7 @@ type CustomerForm = {
 
 type FollowUpForm = {
   projectId: string;
+  assignedTo: string;
   followUpDate: string;
   notes: string;
 };
@@ -195,6 +203,7 @@ const emptyCustomer: CustomerForm = {
 
 const emptyFollowUp: FollowUpForm = {
   projectId: "",
+  assignedTo: "",
   followUpDate: "",
   notes: "",
 };
@@ -274,6 +283,8 @@ const [followUpFilter, setFollowUpFilter] = useState<
   "all" | "open" | "today" | "overdue" | "completed"
 >("all");
 const [assignedToFilter, setAssignedToFilter] = useState("all");
+const [projectAssignedToFilter, setProjectAssignedToFilter] =
+  useState("all");
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -361,7 +372,6 @@ console.log("SUPABASE SESSION:", session);
       supabase
         .from("team_members")
         .select("id, full_name, role, active, auth_user_id")
-        .eq("active", true)
         .order("full_name", { ascending: true }),
 
       supabase
@@ -373,7 +383,7 @@ console.log("SUPABASE SESSION:", session);
       supabase
         .from("follow_ups")
         .select(
-          "id,project_id,follow_up_date,notes,completed,completed_at"
+          "id,project_id,assigned_to,follow_up_date,notes,completed,completed_at"
         )
         .order("follow_up_date", { ascending: true }),
     ]);
@@ -602,6 +612,7 @@ async function handleLogout() {
     setFollowUpForm({
       ...emptyFollowUp,
       projectId: project?.id || "",
+      assignedTo: project?.assigned_to || "",
       followUpDate: suggestedDate,
     });
 
@@ -921,6 +932,7 @@ await loadData(false);
       .from("follow_ups")
       .insert({
         project_id: followUpForm.projectId,
+        assigned_to: followUpForm.assignedTo || null,
         follow_up_date: followUpForm.followUpDate,
         notes: followUpForm.notes.trim() || null,
         completed: false,
@@ -1147,6 +1159,13 @@ if (result.error) {
       return true;
     });
 
+    if (projectAssignedToFilter !== "all") {
+      result = result.filter(
+        (project) =>
+          project.assigned_to === projectAssignedToFilter
+      );
+    }
+
     if (search) {
       result = result.filter((project) => {
         const values = [
@@ -1251,6 +1270,7 @@ if (result.error) {
   }, [
     accessibleProjects,
     projectSearch,
+    projectAssignedToFilter,
     projectView,
     projectSort,
     companies,
@@ -1289,7 +1309,10 @@ if (result.error) {
       : accessibleFollowUps.filter((followUp) => {
           const project = getFollowUpProject(followUp);
 
-          return project?.assigned_to === assignedToFilter;
+          return (
+            followUp.assigned_to ||
+            project?.assigned_to
+          ) === assignedToFilter;
         });
 
   const openFollowUps = assigneeFollowUps.filter(
@@ -1441,6 +1464,13 @@ if (!session) {
       onClick={() => setPage("customers")}
     >
       Customers
+    </NavButton>
+
+    <NavButton
+      active={page === "team"}
+      onClick={() => setPage("team")}
+    >
+      Team Members
     </NavButton>
 
     <NavButton
@@ -1655,6 +1685,30 @@ if (!session) {
                 />
               </div>
 
+              {isAdmin && (
+                <div className="mb-4">
+                  <label className="mb-2 block text-sm font-medium text-gray-600">
+                    Filter Projects by Salesperson
+                  </label>
+                  <select
+                    value={projectAssignedToFilter}
+                    onChange={(event) =>
+                      setProjectAssignedToFilter(event.target.value)
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm outline-none focus:border-green-500 md:max-w-md"
+                  >
+                    <option value="all">All Team Members</option>
+                    {teamMembers
+                      .filter((member) => member.active)
+                      .map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.full_name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="flex flex-wrap gap-2">
                   <ViewButton
@@ -1681,7 +1735,7 @@ if (!session) {
                       setProjectView("all")
                     }
                   >
-                    All ({projects.length})
+                    All ({accessibleProjects.length})
                   </ViewButton>
                 </div>
 
@@ -1887,6 +1941,17 @@ if (!session) {
           </>
         )}
 
+        {page === "team" && (
+          <TeamMembersSection
+            teamMembers={teamMembers}
+            projects={accessibleProjects}
+            followUps={accessibleFollowUps}
+            statuses={statuses}
+            isAdmin={isAdmin}
+            onChanged={loadData}
+          />
+        )}
+
         {page === "followups" && (
           <>
             <div className="mb-8 flex items-center justify-between">
@@ -1924,7 +1989,9 @@ if (!session) {
                 >
                   <option value="all">All Team Members</option>
 
-                  {teamMembers.map((member) => (
+                  {teamMembers
+                    .filter((member) => member.active)
+                    .map((member) => (
                     <option key={member.id} value={member.id}>
                       {member.full_name}
                     </option>
@@ -2028,7 +2095,9 @@ if (!session) {
 
                               <td className="px-6 py-4 text-gray-600">
                                 {getTeamMemberName(
-                                  project?.assigned_to || null
+                                  followUp.assigned_to ||
+                                    project?.assigned_to ||
+                                    null
                                 )}
                               </td>
 
@@ -2578,6 +2647,9 @@ if (!session) {
                 setFollowUpForm({
                   ...followUpForm,
                   projectId: value,
+                  assignedTo:
+                    project?.assigned_to ||
+                    followUpForm.assignedTo,
                   followUpDate:
                     suggestedDate ||
                     followUpForm.followUpDate,
@@ -2599,6 +2671,24 @@ if (!session) {
                     "Unnamed Project",
                 }))}
               placeholder="Select project"
+            />
+
+            <SelectInput
+              label="Follow-Up Assigned To"
+              value={followUpForm.assignedTo}
+              onChange={(value) =>
+                setFollowUpForm({
+                  ...followUpForm,
+                  assignedTo: value,
+                })
+              }
+              options={teamMembers
+                .filter((member) => member.active)
+                .map((member) => ({
+                  value: member.id,
+                  label: member.full_name,
+                }))}
+              placeholder="Select salesperson"
             />
 
             {followUpForm.projectId && (
