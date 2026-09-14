@@ -2026,7 +2026,7 @@ if (!session) {
               />
 
               <SelectInput
-                label="Contractor Company"
+                label="Contractor Name"
                 value={projectForm.contractorId}
                 onChange={(value) =>
                   setProjectForm({
