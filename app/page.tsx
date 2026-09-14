@@ -1418,6 +1418,10 @@ if (!session) {
                     ? "..."
                     : String(todayFollowUps.length)
                 }
+                onClick={() => {
+                  setFollowUpFilter("today");
+                  setPage("followups");
+                }}
               />
             </div>
 
@@ -1785,16 +1789,19 @@ if (!session) {
               <FollowUpSummaryCard
                 title="Open"
                 value={openFollowUps.length}
+                onClick={() => setFollowUpFilter("open")}
               />
 
               <FollowUpSummaryCard
                 title="Today"
                 value={todayFollowUps.length}
+                onClick={() => setFollowUpFilter("today")}
               />
 
               <FollowUpSummaryCard
                 title="Overdue"
                 value={overdueFollowUps.length}
+                onClick={() => setFollowUpFilter("overdue")}
               />
             </div>
 
@@ -2787,12 +2794,14 @@ function ViewButton({
 function DashboardCard({
   title,
   value,
+  onClick,
 }: {
   title: string;
   value: string;
+  onClick?: () => void;
 }) {
-  return (
-    <div className="rounded-xl bg-white p-6 shadow-sm">
+  const content = (
+    <>
       <p className="text-sm text-gray-500">
         {title}
       </p>
@@ -2800,6 +2809,24 @@ function DashboardCard({
       <p className="mt-2 text-3xl font-bold">
         {value}
       </p>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-xl bg-white p-6 text-left shadow-sm transition hover:shadow-md"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-xl bg-white p-6 shadow-sm">
+      {content}
     </div>
   );
 }
