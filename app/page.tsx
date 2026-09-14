@@ -2321,10 +2321,23 @@ if (!session) {
                   })
                 }
                 options={[
-                  ...profiles.map((profile) => ({
-                    value: profile.id,
-                    label: profile.full_name,
-                  })),
+                  ...teamMembers
+                    .filter((member) => {
+                      const name = member.full_name
+                        .replaceAll(".", "")
+                        .trim()
+                        .toLowerCase();
+
+                      return (
+                        name === "eng reem hameed" ||
+                        name === "rami al sebaie" ||
+                        name === "rami al sebaei"
+                      );
+                    })
+                    .map((member) => ({
+                      value: member.id,
+                      label: member.full_name,
+                    })),
                   {
                     value: "__other__",
                     label: "Other",
@@ -2831,7 +2844,7 @@ if (!session) {
                 label="Prepared By"
                 value={
                   selectedProject.prepared_by_other ||
-                  getProfileName(selectedProject.prepared_by)
+                  getTeamMemberName(selectedProject.prepared_by)
                 }
               />
 
