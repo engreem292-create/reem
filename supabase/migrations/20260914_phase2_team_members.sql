@@ -32,7 +32,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = public
-as $
+as $function$
 begin
   if new.assigned_to is null then
     select assigned_to
@@ -43,7 +43,7 @@ begin
 
   return new;
 end;
-$;
+$function$;
 
 drop trigger if exists set_follow_up_default_assignee
 on public.follow_ups;
