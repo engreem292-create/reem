@@ -112,7 +112,6 @@ type Project = {
   status_id: string | null;
   estimated_sale_jd: number | null;
   assigned_to: string | null;
-  ordered_by: string | null;
   prepared_by: string | null;
   notes: string | null;
   rejection_reason: string | null;
@@ -145,7 +144,6 @@ type ProjectForm = {
   statusId: string;
   estimatedSaleJd: string;
   assignedTo: string;
-  orderedBy: string;
   preparedBy: string;
   notes: string;
   rejectionReason: string;
@@ -179,7 +177,6 @@ const emptyProject: ProjectForm = {
   statusId: "",
   estimatedSaleJd: "",
   assignedTo: "",
-  orderedBy: "",
   preparedBy: "",
   notes: "",
   rejectionReason: "",
@@ -339,7 +336,7 @@ console.log("SUPABASE SESSION:", session);
       supabase
         .from("projects")
         .select(
-          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,assigned_to,ordered_by,prepared_by,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
+          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,assigned_to,prepared_by,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
         )
         .order("created_at", { ascending: false }),
 
@@ -492,6 +489,14 @@ async function handleLogout() {
     return profile ? profile.full_name : "-";
   }
 
+  function getTeamMemberName(id: string | null) {
+    if (!id) return "-";
+
+    const member = teamMembers.find((item) => item.id === id);
+
+    return member ? member.full_name : "-";
+  }
+
   function getFollowUpProject(followUp: FollowUp) {
     return projects.find(
       (project) => project.id === followUp.project_id
@@ -550,7 +555,6 @@ async function handleLogout() {
           ? ""
           : String(project.estimated_sale_jd),
       assignedTo: project.assigned_to || "",
-      orderedBy: project.ordered_by || "",
       preparedBy: project.prepared_by || "",
       notes: project.notes || "",
       rejectionReason: project.rejection_reason || "",
@@ -731,7 +735,6 @@ return;
         ? Number(projectForm.estimatedSaleJd)
         : null,
       assigned_to: projectForm.assignedTo || null,
-      ordered_by: projectForm.orderedBy.trim() || null,
       prepared_by: projectForm.preparedBy || null,
       notes: projectForm.notes.trim() || null,
       rejection_reason:
@@ -779,7 +782,7 @@ return;
         .from("projects")
         .insert(projectData)
         .select(
-          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,assigned_to,ordered_by,prepared_by,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
+          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,assigned_to,prepared_by,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
         )
         .single();
 
@@ -1053,7 +1056,7 @@ if (result.error) {
           project.consultant_name,
           project.mobile_no,
           getStatusName(project.status_id),
-          getProfileName(project.assigned_to),
+          getTeamMemberName(project.assigned_to),
         ];
 
         return values.some(
@@ -1477,7 +1480,7 @@ if (!session) {
                 loading={loading}
                 getCompanyName={getCompanyName}
                 getStatusName={getStatusName}
-                getProfileName={getProfileName}
+                getProfileName={getTeamMemberName}
                 onEdit={openEditProject}
                 onDetails={openProjectDetails}
               />
@@ -1637,7 +1640,7 @@ if (!session) {
                 loading={loading}
                 getCompanyName={getCompanyName}
                 getStatusName={getStatusName}
-                getProfileName={getProfileName}
+                getProfileName={getTeamMemberName}
                 onEdit={openEditProject}
                 onDetails={openProjectDetails}
               />
@@ -2134,18 +2137,6 @@ if (!session) {
                 placeholder="Select salesperson"
               />
 
-              <TextInput
-                label="Ordered By"
-                value={projectForm.orderedBy}
-                onChange={(value) =>
-                  setProjectForm({
-                    ...projectForm,
-                    orderedBy: value,
-                  })
-                }
-                placeholder="Ordered by"
-              />
-
               <SelectInput
                 label="Prepared By"
                 value={projectForm.preparedBy}
@@ -2155,16 +2146,10 @@ if (!session) {
                     preparedBy: value,
                   })
                 }
-options={[
-  {
-    value: "de367931-06d7-44d8-ba8e-c14bd06563aa",
-    label: "Eng Reem Hameed",
-  },
-  {
-    value: "65e666f8-c258-413e-a30e-4f693b7e6507",
-    label: "Rami Al Sebaie",
-  },
-]}
+                options={profiles.map((profile) => ({
+                  value: profile.id,
+                  label: profile.full_name,
+                }))}
                 placeholder="Select salesperson"
               />
             </div>
@@ -2642,16 +2627,9 @@ options={[
 
               <DetailItem
                 label="Assigned To"
-                value={getProfileName(
+                value={getTeamMemberName(
                   selectedProject.assigned_to
                 )}
-              />
-
-              <DetailItem
-                label="Ordered By"
-                value={
-                  selectedProject.ordered_by
-                }
               />
 
               <DetailItem
