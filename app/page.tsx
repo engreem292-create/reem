@@ -113,6 +113,7 @@ type Project = {
   estimated_sale_jd: number | null;
   assigned_to: string | null;
   prepared_by: string | null;
+  prepared_by_other: string | null;
   notes: string | null;
   rejection_reason: string | null;
   specification_mismatch: string | null;
@@ -145,6 +146,7 @@ type ProjectForm = {
   estimatedSaleJd: string;
   assignedTo: string;
   preparedBy: string;
+  preparedByOther: string;
   notes: string;
   rejectionReason: string;
   specificationMismatch: string;
@@ -178,6 +180,7 @@ const emptyProject: ProjectForm = {
   estimatedSaleJd: "",
   assignedTo: "",
   preparedBy: "",
+  preparedByOther: "",
   notes: "",
   rejectionReason: "",
   specificationMismatch: "",
@@ -336,7 +339,7 @@ console.log("SUPABASE SESSION:", session);
       supabase
         .from("projects")
         .select(
-          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,assigned_to,prepared_by,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
+          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,assigned_to,prepared_by,prepared_by_other,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
         )
         .order("created_at", { ascending: false }),
 
@@ -555,7 +558,10 @@ async function handleLogout() {
           ? ""
           : String(project.estimated_sale_jd),
       assignedTo: project.assigned_to || "",
-      preparedBy: project.prepared_by || "",
+      preparedBy: project.prepared_by_other
+        ? "__other__"
+        : project.prepared_by || "",
+      preparedByOther: project.prepared_by_other || "",
       notes: project.notes || "",
       rejectionReason: project.rejection_reason || "",
       specificationMismatch:
@@ -705,6 +711,15 @@ dbError.hint ||
       setError("Estimated Sale must be a valid number.");
       return;
     }
+
+    if (
+      projectForm.preparedBy === "__other__" &&
+      !projectForm.preparedByOther.trim()
+    ) {
+      setError("Please enter the name of the person who prepared the project.");
+      return;
+    }
+
 if (
 projectForm.statusId &&
 !statuses.some((status) => status.id === projectForm.statusId)
@@ -735,7 +750,14 @@ return;
         ? Number(projectForm.estimatedSaleJd)
         : null,
       assigned_to: projectForm.assignedTo || null,
-      prepared_by: projectForm.preparedBy || null,
+      prepared_by:
+        projectForm.preparedBy === "__other__"
+          ? null
+          : projectForm.preparedBy || null,
+      prepared_by_other:
+        projectForm.preparedBy === "__other__"
+          ? projectForm.preparedByOther.trim() || null
+          : null,
       notes: projectForm.notes.trim() || null,
       rejection_reason:
         projectForm.rejectionReason.trim() || null,
@@ -782,7 +804,7 @@ return;
         .from("projects")
         .insert(projectData)
         .select(
-          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,assigned_to,prepared_by,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
+          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,assigned_to,prepared_by,prepared_by_other,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
         )
         .single();
 
@@ -2146,12 +2168,33 @@ if (!session) {
                     preparedBy: value,
                   })
                 }
-                options={profiles.map((profile) => ({
-                  value: profile.id,
-                  label: profile.full_name,
-                }))}
+                options={[
+                  ...profiles.map((profile) => ({
+                    value: profile.id,
+                    label: profile.full_name,
+                  })),
+                  {
+                    value: "__other__",
+                    label: "Other",
+                  },
+                ]}
                 placeholder="Select salesperson"
               />
+
+              {projectForm.preparedBy === "__other__" && (
+                <TextInput
+                  label="Other Prepared By"
+                  value={projectForm.preparedByOther}
+                  onChange={(value) =>
+                    setProjectForm({
+                      ...projectForm,
+                      preparedByOther: value,
+                    })
+                  }
+                  placeholder="Enter full name"
+                  required
+                />
+              )}
             </div>
 
             {projectForm.statusId &&
@@ -2634,9 +2677,10 @@ if (!session) {
 
               <DetailItem
                 label="Prepared By"
-                value={getProfileName(
-                  selectedProject.prepared_by
-                )}
+                value={
+                  selectedProject.prepared_by_other ||
+                  getProfileName(selectedProject.prepared_by)
+                }
               />
 
               <DetailItem
