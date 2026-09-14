@@ -2371,12 +2371,12 @@ if (!session) {
                     assignedTo: value,
                   })
                 }
-                options={teamMembers.map(
-                 (member) => ({
-                 value: member.id,
-                 label: member.full_name,
-               })
-                  )}
+                options={teamMembers
+                  .filter((member) => member.active)
+                  .map((member) => ({
+                    value: member.id,
+                    label: member.full_name,
+                  }))}
                 placeholder="Select salesperson"
               />
 
