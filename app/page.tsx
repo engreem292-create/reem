@@ -270,7 +270,9 @@ useEffect(() => {
 }, []); 
 const [page, setPage] = useState<Page>("dashboard");
 
-const [followUpFilter, setFollowUpFilter] = useState< "all" | "open" | "today" | "overdue" >("all");
+const [followUpFilter, setFollowUpFilter] = useState<
+  "all" | "open" | "today" | "overdue" | "completed"
+>("all");
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -1241,6 +1243,10 @@ if (result.error) {
     (item) => !item.completed
   );
 
+  const completedFollowUps = followUps.filter(
+    (item) => item.completed
+  );
+
   const overdueFollowUps = openFollowUps.filter(
     (item) =>
       item.follow_up_date &&
@@ -1258,7 +1264,9 @@ const filteredFollowUps =
       ? todayFollowUps
       : followUpFilter === "overdue"
         ? overdueFollowUps
-        : followUps;
+        : followUpFilter === "completed"
+          ? completedFollowUps
+          : followUps;
 
   const activeProjectsCount = projects.filter(
     (project) => !project.hidden
@@ -1848,7 +1856,13 @@ if (!session) {
               </button>
             </div>
 
-            <div className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-3">
+            <div className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-5">
+              <FollowUpSummaryCard
+                title="All"
+                value={followUps.length}
+                onClick={() => setFollowUpFilter("all")}
+              />
+
               <FollowUpSummaryCard
                 title="Open"
                 value={openFollowUps.length}
@@ -1865,6 +1879,12 @@ if (!session) {
                 title="Overdue"
                 value={overdueFollowUps.length}
                 onClick={() => setFollowUpFilter("overdue")}
+              />
+
+              <FollowUpSummaryCard
+                title="Completed"
+                value={completedFollowUps.length}
+                onClick={() => setFollowUpFilter("completed")}
               />
             </div>
 
