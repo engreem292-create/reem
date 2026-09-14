@@ -28,6 +28,8 @@ type Company = {
   phone: string | null;
   email: string | null;
   notes: string | null;
+  customer_group: "contractor" | "consultant" | "general_customer";
+  active: boolean;
 };
 
 type Profile = {
@@ -164,6 +166,7 @@ type CustomerForm = {
   phone: string;
   email: string;
   notes: string;
+  customerGroup: "contractor" | "consultant" | "general_customer";
 };
 
 type FollowUpForm = {
@@ -199,6 +202,7 @@ const emptyCustomer: CustomerForm = {
   phone: "",
   email: "",
   notes: "",
+  customerGroup: "general_customer",
 };
 
 const emptyFollowUp: FollowUpForm = {
@@ -296,6 +300,7 @@ useState<FollowUp[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingCustomer, setSavingCustomer] = useState(false);
+  const [customerFormError, setCustomerFormError] = useState("");
   const [savingFollowUp, setSavingFollowUp] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
 
@@ -303,6 +308,7 @@ useState<FollowUp[]>([]);
 
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [customerModalFromProject, setCustomerModalFromProject] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
 
@@ -360,7 +366,7 @@ console.log("SUPABASE SESSION:", session);
 
       supabase
         .from("companies")
-        .select("id,name,phone,email,notes")
+        .select("id,name,phone,email,notes,customer_group,active")
         .order("name", { ascending: true }),
 
       supabase
@@ -488,6 +494,12 @@ async function handleLogout() {
     const company = companies.find((item) => item.id === id);
 
     return company ? company.name : "-";
+  }
+
+  function getCustomerGroupLabel(group: Company["customer_group"]) {
+    if (group === "contractor") return "Contractor";
+    if (group === "consultant") return "Consultant";
+    return "General Customer";
   }
 
   function getStatusName(id: string | null) {
@@ -621,9 +633,11 @@ async function handleLogout() {
     setShowFollowUpModal(true);
   }
 
-  function openNewCustomer() {
+  function openNewCustomer(fromProject = false) {
     setEditingCustomerId(null);
     setCustomerForm({ ...emptyCustomer });
+    setCustomerModalFromProject(fromProject);
+    setCustomerFormError("");
     setError("");
     setShowCustomerModal(true);
   }
@@ -636,8 +650,11 @@ async function handleLogout() {
       phone: company.phone || "",
       email: company.email || "",
       notes: company.notes || "",
+      customerGroup: company.customer_group || "general_customer",
     });
 
+    setCustomerModalFromProject(false);
+    setCustomerFormError("");
     setError("");
     setShowCustomerModal(true);
   }
@@ -868,18 +885,43 @@ await loadData(false);
     event.preventDefault();
 
     if (!customerForm.name.trim()) {
-      setError("Customer name is required.");
+      setCustomerFormError("Customer name is required.");
+      return;
+    }
+
+    const normalizedName = customerForm.name.trim().toLocaleLowerCase();
+    const normalizedPhone = customerForm.phone.replace(/\D/g, "");
+    const duplicate = companies.find((company) => {
+      if (company.id === editingCustomerId) return false;
+
+      const sameName = company.name.trim().toLocaleLowerCase() === normalizedName;
+      const companyPhone = (company.phone || "").replace(/\D/g, "");
+      const samePhone = Boolean(normalizedPhone) && companyPhone === normalizedPhone;
+
+      return sameName || samePhone;
+    });
+
+    if (duplicate) {
+      const duplicateReason =
+        duplicate.name.trim().toLocaleLowerCase() === normalizedName
+          ? "name"
+          : "mobile number";
+      setCustomerFormError(
+        `A customer with the same ${duplicateReason} already exists: ${duplicate.name}.`
+      );
       return;
     }
 
     setSavingCustomer(true);
     setError("");
+    setCustomerFormError("");
 
     const companyData = {
       name: customerForm.name.trim(),
       phone: customerForm.phone.trim() || null,
       email: customerForm.email.trim() || null,
       notes: customerForm.notes.trim() || null,
+      customer_group: customerForm.customerGroup,
     };
 
     let result;
@@ -888,18 +930,36 @@ await loadData(false);
       result = await supabase
         .from("companies")
         .update(companyData)
-        .eq("id", editingCustomerId);
+        .eq("id", editingCustomerId)
+        .select("id,name,phone,email,notes,customer_group,active")
+        .single();
     } else {
       result = await supabase
         .from("companies")
-        .insert(companyData);
+        .insert(companyData)
+        .select("id,name,phone,email,notes,customer_group,active")
+        .single();
     }
 
     if (result.error) {
       console.error(result.error);
-      setError(result.error.message);
+      setCustomerFormError(result.error.message);
       setSavingCustomer(false);
       return;
+    }
+
+    const savedCustomer = result.data as Company;
+
+    setCompanies((current) =>
+      [...current.filter((company) => company.id !== savedCustomer.id), savedCustomer]
+        .sort((a, b) => a.name.localeCompare(b.name))
+    );
+
+    if (customerModalFromProject && !editingCustomerId) {
+      setProjectForm((current) => ({
+        ...current,
+        customerId: savedCustomer.id,
+      }));
     }
 
     setSavingCustomer(false);
@@ -907,7 +967,29 @@ await loadData(false);
     setEditingCustomerId(null);
     setCustomerForm({ ...emptyCustomer });
 
-    await loadData();
+  }
+
+  async function toggleCustomerActive(company: Company) {
+    setError("");
+
+    const result = await supabase
+      .from("companies")
+      .update({ active: !company.active })
+      .eq("id", company.id)
+      .select("id,name,phone,email,notes,customer_group,active")
+      .single();
+
+    if (result.error) {
+      setError("Could not update customer: " + result.error.message);
+      return;
+    }
+
+    const updatedCustomer = result.data as Company;
+    setCompanies((current) =>
+      current.map((item) =>
+        item.id === updatedCustomer.id ? updatedCustomer : item
+      )
+    );
   }
 
   async function saveFollowUp(
@@ -1289,6 +1371,8 @@ if (result.error) {
         company.phone,
         company.email,
         company.notes,
+        getCustomerGroupLabel(company.customer_group),
+        company.active ? "active" : "inactive",
       ];
 
       return values.some(
@@ -1838,7 +1922,7 @@ if (!session) {
 
               <button
                 type="button"
-                onClick={openNewCustomer}
+                onClick={() => openNewCustomer(false)}
                 className="rounded-lg bg-green-600 px-5 py-3 font-medium text-white hover:bg-green-700"
               >
                 + Add Customer
@@ -1885,6 +1969,14 @@ if (!session) {
                         </th>
 
                         <th className="px-6 py-4 text-left text-sm font-semibold">
+                          Group
+                        </th>
+
+                        <th className="px-6 py-4 text-left text-sm font-semibold">
+                          Status
+                        </th>
+
+                        <th className="px-6 py-4 text-left text-sm font-semibold">
                           Notes
                         </th>
 
@@ -1914,6 +2006,16 @@ if (!session) {
                             </td>
 
                             <td className="px-6 py-4 text-gray-600">
+                              {getCustomerGroupLabel(company.customer_group)}
+                            </td>
+
+                            <td className="px-6 py-4">
+                              <span className={`rounded-full px-3 py-1 text-xs font-medium ${company.active ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-600"}`}>
+                                {company.active ? "Active" : "Inactive"}
+                              </span>
+                            </td>
+
+                            <td className="px-6 py-4 text-gray-600">
                               {company.notes || "-"}
                             </td>
 
@@ -1928,6 +2030,14 @@ if (!session) {
                                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-100"
                               >
                                 Edit
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => toggleCustomerActive(company)}
+                                className="ml-2 rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-100"
+                              >
+                                {company.active ? "Deactivate" : "Activate"}
                               </button>
                             </td>
                           </tr>
@@ -2218,18 +2328,30 @@ if (!session) {
               <SelectInput
                 label="Customer"
                 value={projectForm.customerId}
-                onChange={(value) =>
+                onChange={(value) => {
+                  if (value === "__new_customer__") {
+                    openNewCustomer(true);
+                    return;
+                  }
+
                   setProjectForm({
                     ...projectForm,
                     customerId: value,
-                  })
-                }
-                options={companies.map(
+                  });
+                }}
+                options={[
+                  {
+                    value: "__new_customer__",
+                    label: "+ New Customer",
+                  },
+                  ...companies.filter(
+                    (company) => company.active || company.id === projectForm.customerId
+                  ).map(
                   (company) => ({
                     value: company.id,
-                    label: company.name,
+                    label: `${company.name} (${getCustomerGroupLabel(company.customer_group)})`,
                   })
-                )}
+                )]}
                 placeholder="Select customer"
               />
 
@@ -2524,6 +2646,7 @@ if (!session) {
 
       {showCustomerModal && (
         <Modal
+          maxWidth="max-w-xl"
           title={
             editingCustomerId
               ? "Edit Customer"
@@ -2539,6 +2662,12 @@ if (!session) {
             onSubmit={saveCustomer}
             className="space-y-5"
           >
+            {customerFormError && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {customerFormError}
+              </div>
+            )}
+
             <TextInput
               label="Customer / Company Name"
               value={customerForm.name}
@@ -2550,6 +2679,23 @@ if (!session) {
               }
               placeholder="Company name"
               required
+            />
+
+            <SelectInput
+              label="Customer Group"
+              value={customerForm.customerGroup}
+              onChange={(value) =>
+                setCustomerForm({
+                  ...customerForm,
+                  customerGroup: value as CustomerForm["customerGroup"],
+                })
+              }
+              options={[
+                { value: "general_customer", label: "General Customer" },
+                { value: "contractor", label: "Contractor" },
+                { value: "consultant", label: "Consultant" },
+              ]}
+              placeholder="Select customer group"
             />
 
             <TextInput
@@ -3605,14 +3751,16 @@ function Modal({
   title,
   children,
   onClose,
+  maxWidth = "max-w-6xl",
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  maxWidth?: string;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+      <div className={`max-h-[94vh] w-full ${maxWidth} overflow-y-auto rounded-2xl bg-white shadow-2xl`}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-8 py-5">
           <h2 className="text-2xl font-bold">
             {title}
