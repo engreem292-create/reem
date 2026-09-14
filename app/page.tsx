@@ -1008,16 +1008,28 @@ if (result.error) {
   }
 
   async function deleteProject(project: Project) {
+    const projectName =
+      project.project_name?.trim() || "this project";
+
+    const confirmed = window.confirm(
+      `Delete "${projectName}"?\n\nThis permanently deletes the project and all related follow-ups. This action cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     setDeletingProject(true);
     setError("");
 
     const followUpDeleteResult = await supabase
       .from("follow_ups")
       .delete()
-      .eq("project_id", project.id);
+      .eq("project_id", project.id)
+      .select("id");
 
     if (followUpDeleteResult.error) {
-      console.error(followUpDeleteResult.error);
+      console.error("Follow-up deletion failed:", followUpDeleteResult.error);
       setError(
         "Could not delete the project's follow-ups: " +
           followUpDeleteResult.error.message
@@ -1029,23 +1041,42 @@ if (result.error) {
     const projectDeleteResult = await supabase
       .from("projects")
       .delete()
-      .eq("id", project.id);
+      .eq("id", project.id)
+      .select("id");
 
     if (projectDeleteResult.error) {
-      console.error(projectDeleteResult.error);
+      console.error("Project deletion failed:", projectDeleteResult.error);
       setError(
         "Could not delete project: " +
           projectDeleteResult.error.message
       );
       setDeletingProject(false);
+      await loadData(false);
       return;
     }
 
-    setDeletingProject(false);
+    if (projectDeleteResult.data.length !== 1) {
+      setError(
+        "The project was not deleted. Please check the Supabase delete policy for projects."
+      );
+      setDeletingProject(false);
+      await loadData(false);
+      return;
+    }
+
+    setProjects((currentProjects) =>
+      currentProjects.filter((item) => item.id !== project.id)
+    );
+    setFollowUps((currentFollowUps) =>
+      currentFollowUps.filter(
+        (followUp) => followUp.project_id !== project.id
+      )
+    );
     setSelectedProject(null);
     setShowDetailsModal(false);
+    setDeletingProject(false);
 
-    await loadData();
+    await loadData(false);
   }
 
   const filteredProjects = useMemo(() => {
