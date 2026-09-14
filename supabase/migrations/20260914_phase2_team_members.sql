@@ -27,6 +27,33 @@ where p.id = fu.project_id
 create index if not exists follow_ups_assigned_to_idx
 on public.follow_ups(assigned_to);
 
+create or replace function public.set_follow_up_default_assignee()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $
+begin
+  if new.assigned_to is null then
+    select assigned_to
+    into new.assigned_to
+    from public.projects
+    where id = new.project_id;
+  end if;
+
+  return new;
+end;
+$;
+
+drop trigger if exists set_follow_up_default_assignee
+on public.follow_ups;
+
+create trigger set_follow_up_default_assignee
+before insert or update of project_id
+on public.follow_ups
+for each row
+execute function public.set_follow_up_default_assignee();
+
 create or replace function public.crm_current_team_member_id()
 returns uuid
 language sql
