@@ -574,6 +574,7 @@ async function handleLogout() {
     });
 
     setError("");
+    setShowDetailsModal(false);
     setShowProjectModal(true);
   }
 
@@ -602,6 +603,7 @@ async function handleLogout() {
     });
 
     setError("");
+    setShowDetailsModal(false);
     setShowFollowUpModal(true);
   }
 
