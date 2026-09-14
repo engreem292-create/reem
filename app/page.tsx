@@ -1615,7 +1615,7 @@ if (!session) {
 
                 <button
                   type="button"
-                  onClick={loadData}
+                  onClick={() => loadData()}
                   className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
                 >
                   Refresh
