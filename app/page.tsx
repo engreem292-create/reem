@@ -273,6 +273,7 @@ const [page, setPage] = useState<Page>("dashboard");
 const [followUpFilter, setFollowUpFilter] = useState<
   "all" | "open" | "today" | "overdue" | "completed"
 >("all");
+const [assignedToFilter, setAssignedToFilter] = useState("all");
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -1088,10 +1089,53 @@ if (result.error) {
     await loadData(false);
   }
 
+  const currentTeamMember = useMemo(
+    () =>
+      teamMembers.find(
+        (member) =>
+          member.auth_user_id === session?.user?.id
+      ) || null,
+    [teamMembers, session?.user?.id]
+  );
+
+  const isAdmin =
+    currentTeamMember?.role.trim().toLowerCase() === "admin";
+
+  const accessibleProjects = useMemo(() => {
+    if (isAdmin) {
+      return projects;
+    }
+
+    if (!currentTeamMember) {
+      return [];
+    }
+
+    return projects.filter(
+      (project) =>
+        project.assigned_to === currentTeamMember.id
+    );
+  }, [projects, currentTeamMember, isAdmin]);
+
+  const accessibleProjectIds = useMemo(
+    () =>
+      new Set(
+        accessibleProjects.map((project) => project.id)
+      ),
+    [accessibleProjects]
+  );
+
+  const accessibleFollowUps = useMemo(
+    () =>
+      followUps.filter((followUp) =>
+        accessibleProjectIds.has(followUp.project_id)
+      ),
+    [followUps, accessibleProjectIds]
+  );
+
   const filteredProjects = useMemo(() => {
     const search = projectSearch.trim().toLowerCase();
 
-    let result = projects.filter((project) => {
+    let result = accessibleProjects.filter((project) => {
       if (projectView === "active") {
         return !project.hidden;
       }
@@ -1205,7 +1249,7 @@ if (result.error) {
 
     return result;
   }, [
-    projects,
+    accessibleProjects,
     projectSearch,
     projectView,
     projectSort,
@@ -1239,11 +1283,20 @@ if (result.error) {
 
   const today = getTodayString();
 
-  const openFollowUps = followUps.filter(
+  const assigneeFollowUps =
+    assignedToFilter === "all"
+      ? accessibleFollowUps
+      : accessibleFollowUps.filter((followUp) => {
+          const project = getFollowUpProject(followUp);
+
+          return project?.assigned_to === assignedToFilter;
+        });
+
+  const openFollowUps = assigneeFollowUps.filter(
     (item) => !item.completed
   );
 
-  const completedFollowUps = followUps.filter(
+  const completedFollowUps = assigneeFollowUps.filter(
     (item) => item.completed
   );
 
@@ -1266,13 +1319,13 @@ const filteredFollowUps =
         ? overdueFollowUps
         : followUpFilter === "completed"
           ? completedFollowUps
-          : followUps;
+          : assigneeFollowUps;
 
-  const activeProjectsCount = projects.filter(
+  const activeProjectsCount = accessibleProjects.filter(
     (project) => !project.hidden
   ).length;
 
-  const hiddenProjectsCount = projects.filter(
+  const hiddenProjectsCount = accessibleProjects.filter(
     (project) => project.hidden
   ).length;
 
@@ -1540,7 +1593,7 @@ if (!session) {
               </div>
 
               <ProjectTable
-                projects={projects
+                projects={accessibleProjects
                   .filter(
                     (project) => !project.hidden
                   )
@@ -1856,10 +1909,41 @@ if (!session) {
               </button>
             </div>
 
+            {isAdmin ? (
+              <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+                <label className="mb-2 block text-sm font-medium text-gray-700">
+                  Filter Follow-ups by Assigned To
+                </label>
+
+                <select
+                  value={assignedToFilter}
+                  onChange={(event) =>
+                    setAssignedToFilter(event.target.value)
+                  }
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-green-500 md:max-w-md"
+                >
+                  <option value="all">All Team Members</option>
+
+                  {teamMembers.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.full_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="mb-6 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+                Showing projects and follow-ups assigned to{" "}
+                <span className="font-semibold">
+                  {currentTeamMember?.full_name || "your account"}
+                </span>
+              </div>
+            )}
+
             <div className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-5">
               <FollowUpSummaryCard
                 title="All"
-                value={followUps.length}
+                value={assigneeFollowUps.length}
                 onClick={() => setFollowUpFilter("all")}
               />
 
@@ -1903,6 +1987,10 @@ if (!session) {
                         </th>
 
                         <th className="px-6 py-4 text-left">
+                          Assigned To
+                        </th>
+
+                        <th className="px-6 py-4 text-left">
                           Date
                         </th>
 
@@ -1936,6 +2024,12 @@ if (!session) {
                               <td className="px-6 py-4 font-medium">
                                 {project?.project_name ||
                                   "-"}
+                              </td>
+
+                              <td className="px-6 py-4 text-gray-600">
+                                {getTeamMemberName(
+                                  project?.assigned_to || null
+                                )}
                               </td>
 
                               <td className="px-6 py-4">
