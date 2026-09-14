@@ -436,7 +436,7 @@ setStatuses(databaseStatuses);
       setFollowUps((followUpsResult.data || []) as FollowUp[]);
     }
 
-    if (!hasError) {
+    if (!hasError && clearExistingError) {
       setError("");
     }
 
