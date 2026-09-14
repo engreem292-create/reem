@@ -200,9 +200,10 @@ const emptyFollowUp: FollowUpForm = {
 };
 
 const AUTOMATIC_FOLLOW_UP_DAYS: Record<string, number> = {
-  "Active/In Progress": 7,
-  Tendering: 30,
-  Submittal: 7,
+  active: 7,
+  "active/in progress": 7,
+  tendering: 30,
+  submittal: 7,
 };
 
 function getTodayString() {
@@ -509,7 +510,11 @@ async function handleLogout() {
   function getAutomaticFollowUpDays(statusId: string) {
     const statusName = getStatusName(statusId);
 
-    return AUTOMATIC_FOLLOW_UP_DAYS[statusName] ?? null;
+    return (
+      AUTOMATIC_FOLLOW_UP_DAYS[
+        statusName.trim().toLowerCase()
+      ] ?? null
+    );
   }
 
   function getSuggestedFollowUpDate(
@@ -2938,7 +2943,9 @@ function AutomaticFollowUpHint({
   followUpDate: string;
 }) {
   const days =
-    AUTOMATIC_FOLLOW_UP_DAYS[statusName];
+    AUTOMATIC_FOLLOW_UP_DAYS[
+      statusName.trim().toLowerCase()
+    ];
 
   return (
     <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
