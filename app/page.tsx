@@ -299,6 +299,7 @@ function getStatusBadgeClass(statusName: string) {
   switch (statusName.trim().toLowerCase()) {
     case "won":
     case "awarded":
+    case "awarded / won":
       return "bg-green-100 text-green-800 ring-green-200";
     case "lost":
       return "bg-red-100 text-red-800 ring-red-200";
