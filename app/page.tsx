@@ -339,6 +339,7 @@ useState<FollowUp[]>([]);
 
   const [editingProjectId, setEditingProjectId] =
     useState<string | null>(null);
+  const [copyingProject, setCopyingProject] = useState(false);
 
   const [editingCustomerId, setEditingCustomerId] =
     useState<string | null>(null);
@@ -596,6 +597,7 @@ async function handleLogout() {
 
   function openNewProject() {
     setEditingProjectId(null);
+    setCopyingProject(false);
 
     setProjectForm({
       ...emptyProject,
@@ -608,6 +610,7 @@ async function handleLogout() {
 
   function openEditProject(project: Project) {
     setEditingProjectId(project.id);
+    setCopyingProject(false);
 
     setProjectForm({
       sn: project.sn || "",
@@ -635,6 +638,41 @@ async function handleLogout() {
       rejectionReason: project.rejection_reason || "",
       specificationMismatch:
         project.specification_mismatch || "",
+    });
+
+    setError("");
+    setShowDetailsModal(false);
+    setShowProjectModal(true);
+  }
+
+  function openCopyProject(project: Project) {
+    setEditingProjectId(null);
+    setCopyingProject(true);
+
+    setProjectForm({
+      sn: project.sn || "",
+      projectName: project.project_name || "",
+      customerId: project.customer_id || "",
+      contractingCompanyId: project.contracting_company_id || "",
+      contractorId: project.contractor_id || "",
+      consultantId: project.consultant_id || "",
+      contractorName: project.contractor_name || "",
+      consultantName: project.consultant_name || "",
+      mobileNo: project.mobile_no || "",
+      projectDate: project.project_date || "",
+      statusId: project.status_id || "",
+      estimatedSaleJd:
+        project.estimated_sale_jd === null
+          ? ""
+          : String(project.estimated_sale_jd),
+      assignedTo: project.assigned_to || "",
+      preparedBy: project.prepared_by_other
+        ? "__other__"
+        : project.prepared_by || "",
+      preparedByOther: project.prepared_by_other || "",
+      notes: project.notes || "",
+      rejectionReason: project.rejection_reason || "",
+      specificationMismatch: project.specification_mismatch || "",
     });
 
     setError("");
@@ -932,6 +970,7 @@ if (result.error) {
     setSaving(false);
     setShowProjectModal(false);
     setEditingProjectId(null);
+    setCopyingProject(false);
     setProjectForm({ ...emptyProject });
 
 await loadData(false);
@@ -1836,6 +1875,7 @@ if (!session) {
                 getCompanyName={getCompanyName}
                 getStatusName={getStatusName}
                 getProfileName={getTeamMemberName}
+                onCopy={openCopyProject}
                 onEdit={openEditProject}
                 onDetails={openProjectDetails}
               />
@@ -2020,6 +2060,7 @@ if (!session) {
                 getCompanyName={getCompanyName}
                 getStatusName={getStatusName}
                 getProfileName={getTeamMemberName}
+                onCopy={openCopyProject}
                 onEdit={openEditProject}
                 onDetails={openProjectDetails}
               />
@@ -2423,7 +2464,9 @@ if (!session) {
           title={
             editingProjectId
               ? "Edit Project"
-              : "Add New Project"
+              : copyingProject
+                ? "Copy Project"
+                : "Add New Project"
           }
           onClose={() => {
             if (!saving) {
@@ -2800,7 +2843,9 @@ if (!session) {
                   ? "Saving..."
                   : editingProjectId
                     ? "Save Changes"
-                    : "Save Project"}
+                    : copyingProject
+                      ? "Save Copied Project"
+                      : "Save Project"}
               </button>
             </div>
           </form>
@@ -3233,6 +3278,16 @@ if (!session) {
               </div>
 
               <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    openCopyProject(selectedProject)
+                  }
+                  className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+                >
+                  Copy Project
+                </button>
+
                 <button
                   type="button"
                   onClick={() =>
@@ -3840,6 +3895,7 @@ function ProjectTable({
   getCompanyName,
   getStatusName,
   getProfileName,
+  onCopy,
   onEdit,
   onDetails,
 }: {
@@ -3854,6 +3910,7 @@ function ProjectTable({
   getProfileName: (
     id: string | null
   ) => string;
+  onCopy: (project: Project) => void;
   onEdit: (project: Project) => void;
   onDetails: (project: Project) => void;
 }) {
@@ -4002,6 +4059,16 @@ function ProjectTable({
 
                 <td className="px-6 py-4 text-right">
                   <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onCopy(project)
+                      }
+                      className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+                    >
+                      Copy
+                    </button>
+
                     <button
                       type="button"
                       onClick={() =>
