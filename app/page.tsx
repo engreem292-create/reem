@@ -1471,24 +1471,14 @@ if (result.error) {
           );
 
         case "date_asc":
-          return (
-            new Date(
-              a.project_date || "1900-01-01"
-            ).getTime() -
-            new Date(
-              b.project_date || "1900-01-01"
-            ).getTime()
-          );
+          if (!a.project_date) return 1;
+          if (!b.project_date) return -1;
+          return a.project_date.localeCompare(b.project_date);
 
         case "date_desc":
-          return (
-            new Date(
-              b.project_date || "1900-01-01"
-            ).getTime() -
-            new Date(
-              a.project_date || "1900-01-01"
-            ).getTime()
-          );
+          if (!a.project_date) return 1;
+          if (!b.project_date) return -1;
+          return b.project_date.localeCompare(a.project_date);
 
         case "name_asc":
           return (
@@ -2027,11 +2017,11 @@ if (!session) {
                     className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm outline-none focus:border-green-500"
                   >
                     <option value="created_desc">
-                      Created — Newest First
+                      Added to CRM — Newest First
                     </option>
 
                     <option value="created_asc">
-                      Created — Oldest First
+                      Added to CRM — Oldest First
                     </option>
 
                     <option value="date_desc">
