@@ -136,6 +136,7 @@ type Project = {
   project_date: string | null;
   status_id: string | null;
   estimated_sale_jd: number | null;
+  estimated_cost_jd: number | null;
   assigned_to: string | null;
   prepared_by: string | null;
   prepared_by_other: string | null;
@@ -170,6 +171,7 @@ type ProjectForm = {
   projectDate: string;
   statusId: string;
   estimatedSaleJd: string;
+  estimatedCostJd: string;
   assignedTo: string;
   preparedBy: string;
   preparedByOther: string;
@@ -208,6 +210,7 @@ const emptyProject: ProjectForm = {
   projectDate: "",
   statusId: "",
   estimatedSaleJd: "",
+  estimatedCostJd: "",
   assignedTo: "",
   preparedBy: "",
   preparedByOther: "",
@@ -387,7 +390,7 @@ console.log("SUPABASE SESSION:", session);
       supabase
         .from("projects")
         .select(
-          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,assigned_to,prepared_by,prepared_by_other,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
+          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,estimated_cost_jd,assigned_to,prepared_by,prepared_by_other,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
         )
         .order("created_at", { ascending: false }),
 
@@ -629,6 +632,10 @@ async function handleLogout() {
         project.estimated_sale_jd === null
           ? ""
           : String(project.estimated_sale_jd),
+      estimatedCostJd:
+        project.estimated_cost_jd === null
+          ? ""
+          : String(project.estimated_cost_jd),
       assignedTo: project.assigned_to || "",
       preparedBy: project.prepared_by_other
         ? "__other__"
@@ -665,6 +672,10 @@ async function handleLogout() {
         project.estimated_sale_jd === null
           ? ""
           : String(project.estimated_sale_jd),
+      estimatedCostJd:
+        project.estimated_cost_jd === null
+          ? ""
+          : String(project.estimated_cost_jd),
       assignedTo: project.assigned_to || "",
       preparedBy: project.prepared_by_other
         ? "__other__"
@@ -847,6 +858,14 @@ dbError.hint ||
     }
 
     if (
+      projectForm.estimatedCostJd &&
+      Number.isNaN(Number(projectForm.estimatedCostJd))
+    ) {
+      setError("Estimated Cost must be a valid number.");
+      return;
+    }
+
+    if (
       projectForm.preparedBy === "__other__" &&
       !projectForm.preparedByOther.trim()
     ) {
@@ -882,6 +901,9 @@ return;
       status_id: projectForm.statusId || null,
       estimated_sale_jd: projectForm.estimatedSaleJd
         ? Number(projectForm.estimatedSaleJd)
+        : null,
+      estimated_cost_jd: projectForm.estimatedCostJd
+        ? Number(projectForm.estimatedCostJd)
         : null,
       assigned_to: projectForm.assignedTo || null,
       prepared_by:
@@ -938,7 +960,7 @@ return;
         .from("projects")
         .insert(projectData)
         .select(
-          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,assigned_to,prepared_by,prepared_by_other,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
+          "id,sn,project_name,customer_id,contracting_company_id,contractor_id,consultant_id,contractor_name,consultant_name,mobile_no,project_date,status_id,estimated_sale_jd,estimated_cost_jd,assigned_to,prepared_by,prepared_by_other,notes,rejection_reason,specification_mismatch,hidden,created_at,updated_at"
         )
         .single();
 
@@ -2698,6 +2720,19 @@ if (!session) {
                 placeholder="0.00"
               />
 
+              <TextInput
+                label="Estimated Cost (JD)"
+                type="number"
+                value={projectForm.estimatedCostJd}
+                onChange={(value) =>
+                  setProjectForm({
+                    ...projectForm,
+                    estimatedCostJd: value,
+                  })
+                }
+                placeholder="0.00"
+              />
+
               <SelectInput
                 label="Assigned To"
                 value={projectForm.assignedTo}
@@ -3418,6 +3453,15 @@ if (!session) {
               />
 
               <DetailItem
+                label="Estimated Cost"
+                value={
+                  selectedProject.estimated_cost_jd === null
+                    ? "-"
+                    : `${selectedProject.estimated_cost_jd} JD`
+                }
+              />
+
+              <DetailItem
                 label="Assigned To"
                 value={getTeamMemberName(
                   selectedProject.assigned_to
@@ -3956,6 +4000,10 @@ function ProjectTable({
                 Consultant
               </th>
 
+              <th className="whitespace-nowrap px-6 py-4 text-left text-sm font-semibold">
+                Est. Cost (JD)
+              </th>
+
               <th className="px-6 py-4 text-left text-sm font-semibold">
                 Status
               </th>
@@ -4041,6 +4089,12 @@ function ProjectTable({
                       {project.consultant_name}
                     </div>
                   )}
+                </td>
+
+                <td className="whitespace-nowrap px-6 py-4 text-gray-600">
+                  {project.estimated_cost_jd === null
+                    ? "-"
+                    : project.estimated_cost_jd.toLocaleString()}
                 </td>
 
                 <td className="px-6 py-4">
