@@ -373,6 +373,8 @@ useState<FollowUp[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingCustomer, setSavingCustomer] = useState(false);
+  const [deletingCustomerId, setDeletingCustomerId] =
+    useState<string | null>(null);
   const [customerFormError, setCustomerFormError] = useState("");
   const [savingFollowUp, setSavingFollowUp] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
@@ -1206,27 +1208,62 @@ await loadData(false);
 
   }
 
-  async function toggleCustomerActive(company: Company) {
+  async function deleteCustomer(company: Company) {
     setError("");
 
-    const result = await supabase
-      .from("companies")
-      .update({ active: !company.active })
-      .eq("id", company.id)
-      .select("id,name,phone,email,notes,customer_group,general_customer_type,active")
-      .single();
+    const relatedProjects = projects.filter(
+      (project) =>
+        project.customer_id === company.id ||
+        project.contracting_company_id === company.id ||
+        project.contractor_id === company.id ||
+        project.consultant_id === company.id
+    );
 
-    if (result.error) {
-      setError("Could not update customer: " + result.error.message);
+    if (relatedProjects.length > 0) {
+      window.alert(
+        `Cannot delete "${company.name}" because it is connected to ${relatedProjects.length} project${relatedProjects.length === 1 ? "" : "s"}. Reassign those projects first so no project information is lost.`
+      );
       return;
     }
 
-    const updatedCustomer = result.data as Company;
-    setCompanies((current) =>
-      current.map((item) =>
-        item.id === updatedCustomer.id ? updatedCustomer : item
-      )
+    const confirmed = window.confirm(
+      `Delete "${company.name}"?\n\nThis permanently deletes the company and its related people. This action cannot be undone.`
     );
+
+    if (!confirmed) return;
+
+    setDeletingCustomerId(company.id);
+
+    const result = await supabase
+      .from("companies")
+      .delete()
+      .eq("id", company.id)
+      .select("id");
+
+    if (result.error) {
+      setError(
+        "Could not delete company. It may still have related people or database records: " +
+          result.error.message
+      );
+      setDeletingCustomerId(null);
+      return;
+    }
+
+    if (result.data.length !== 1) {
+      setError(
+        "The company was not deleted. Please check the Supabase delete policy for companies."
+      );
+      setDeletingCustomerId(null);
+      return;
+    }
+
+    setCompanies((current) =>
+      current.filter((item) => item.id !== company.id)
+    );
+    setCompanyContacts((current) =>
+      current.filter((contact) => contact.company_id !== company.id)
+    );
+    setDeletingCustomerId(null);
   }
 
   async function saveFollowUp(
@@ -2390,10 +2427,13 @@ if (!session) {
 
                               <button
                                 type="button"
-                                onClick={() => toggleCustomerActive(company)}
-                                className="ml-2 rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-100"
+                                onClick={() => deleteCustomer(company)}
+                                disabled={deletingCustomerId === company.id}
+                                className="ml-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
                               >
-                                {company.active ? "Deactivate" : "Activate"}
+                                {deletingCustomerId === company.id
+                                  ? "Deleting..."
+                                  : "Delete"}
                               </button>
                             </td>
                           </tr>
