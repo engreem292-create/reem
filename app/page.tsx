@@ -271,6 +271,52 @@ function formatDate(dateString: string | null) {
   return date.toLocaleDateString("en-GB");
 }
 
+function getStatusBadgeClass(statusName: string) {
+  switch (statusName.trim().toLowerCase()) {
+    case "won":
+    case "awarded":
+      return "bg-green-100 text-green-800 ring-green-200";
+    case "lost":
+      return "bg-red-100 text-red-800 ring-red-200";
+    case "tendering":
+      return "bg-blue-900 text-white ring-blue-900";
+    case "active/in progress":
+    case "active":
+      return "bg-amber-100 text-amber-800 ring-amber-200";
+    case "submittal":
+    case "submittal stage":
+      return "bg-purple-100 text-purple-800 ring-purple-200";
+    case "awaiting decision":
+      return "bg-orange-100 text-orange-800 ring-orange-200";
+    case "adjusted":
+      return "bg-pink-100 text-pink-800 ring-pink-200";
+    case "purchase order":
+      return "bg-emerald-700 text-white ring-emerald-700";
+    case "new lead":
+      return "bg-cyan-100 text-cyan-800 ring-cyan-200";
+    case "contacted":
+      return "bg-sky-100 text-sky-800 ring-sky-200";
+    case "quotation sent":
+      return "bg-indigo-100 text-indigo-800 ring-indigo-200";
+    case "negotiation":
+      return "bg-yellow-100 text-yellow-800 ring-yellow-200";
+    case "pricing only":
+      return "bg-slate-200 text-slate-800 ring-slate-300";
+    default:
+      return "bg-gray-100 text-gray-700 ring-gray-200";
+  }
+}
+
+function StatusBadge({ statusName }: { statusName: string }) {
+  return (
+    <span
+      className={`inline-flex whitespace-nowrap rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset ${getStatusBadgeClass(statusName)}`}
+    >
+      {statusName}
+    </span>
+  );
+}
+
 export default function Home() {
 const [session, setSession] = useState<any>(null);
 const [checkingAuth, setCheckingAuth] = useState(true);
@@ -1358,6 +1404,7 @@ if (result.error) {
     );
     setSelectedProject(null);
     setShowDetailsModal(false);
+    setShowProjectModal(false);
     setDeletingProject(false);
 
     await loadData(false);
@@ -2908,7 +2955,54 @@ if (!session) {
               placeholder="Enter specification mismatch..."
             />
 
-            <div className="flex justify-end gap-3 border-t pt-5">
+            <div className="flex flex-col gap-3 border-t pt-5 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-wrap gap-3">
+                {editingProjectId &&
+                  (() => {
+                    const editingProject = projects.find(
+                      (project) => project.id === editingProjectId
+                    );
+
+                    if (!editingProject) return null;
+
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => openCopyProject(editingProject)}
+                          disabled={saving || deletingProject}
+                          className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-3 font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          Copy Project
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleProjectHidden(editingProject)}
+                          disabled={saving || deletingProject}
+                          className="rounded-lg border border-gray-300 bg-white px-4 py-3 font-medium hover:bg-gray-100 disabled:opacity-50"
+                        >
+                          {editingProject.hidden
+                            ? "Unhide Project"
+                            : "Hide Project"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => deleteProject(editingProject)}
+                          disabled={saving || deletingProject}
+                          className="rounded-lg bg-red-600 px-4 py-3 font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {deletingProject
+                            ? "Deleting..."
+                            : "Delete Project"}
+                        </button>
+                      </>
+                    );
+                  })()}
+              </div>
+
+              <div className="flex justify-end gap-3">
               <button
                 type="button"
                 onClick={() =>
@@ -2933,6 +3027,7 @@ if (!session) {
                       ? "Save Copied Project"
                       : "Save Project"}
               </button>
+              </div>
             </div>
           </form>
         </Modal>
@@ -3341,8 +3436,8 @@ if (!session) {
           }
         >
           <div className="space-y-8">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-gray-50 p-4">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-gray-50 p-4">
+              <div className="flex flex-wrap items-center gap-3">
                 <span
                   className={
                     selectedProject.hidden
@@ -3361,59 +3456,10 @@ if (!session) {
                     selectedProject.project_date
                   )}
                 </span>
-              </div>
 
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    openCopyProject(selectedProject)
-                  }
-                  className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
-                >
-                  Copy Project
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    toggleProjectHidden(
-                      selectedProject
-                    )
-                  }
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-100"
-                >
-                  {selectedProject.hidden
-                    ? "Unhide Project"
-                    : "Hide Project"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    openEditProject(
-                      selectedProject
-                    )
-                  }
-                  className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
-                >
-                  Edit Project
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    deleteProject(
-                      selectedProject
-                    )
-                  }
-                  disabled={deletingProject}
-                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                >
-                  {deletingProject
-                    ? "Deleting..."
-                    : "Delete Project"}
-                </button>
+                <StatusBadge
+                  statusName={getStatusName(selectedProject.status_id)}
+                />
               </div>
             </div>
 
@@ -3488,9 +3534,11 @@ if (!session) {
 
               <DetailItem
                 label="Status"
-                value={getStatusName(
-                  selectedProject.status_id
-                )}
+                value={
+                  <StatusBadge
+                    statusName={getStatusName(selectedProject.status_id)}
+                  />
+                }
               />
 
               <DetailItem
@@ -3578,28 +3626,17 @@ if (!session) {
             />
 
             <div>
-              <div className="mb-4 flex items-center justify-between">
+              <div className="mb-4">
                 <h3 className="text-xl font-semibold">
                   Follow-ups
                 </h3>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    openNewFollowUp(
-                      selectedProject
-                    )
-                  }
-                  className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600"
-                >
-                  + Add Follow-Up
-                </button>
               </div>
 
               <ProjectFollowUps
                 projectId={selectedProject.id}
                 followUps={followUps}
                 onToggle={toggleFollowUp}
+                readOnly
               />
             </div>
           </div>
@@ -3897,10 +3934,12 @@ function ProjectFollowUps({
   projectId,
   followUps,
   onToggle,
+  readOnly = false,
 }: {
   projectId: string;
   followUps: FollowUp[];
   onToggle: (followUp: FollowUp) => void;
+  readOnly?: boolean;
 }) {
   const projectFollowUps = followUps
     .filter(
@@ -3966,17 +4005,17 @@ function ProjectFollowUps({
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() =>
-                onToggle(followUp)
-              }
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
-            >
-              {followUp.completed
-                ? "Reopen"
-                : "Complete"}
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => onToggle(followUp)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+              >
+                {followUp.completed
+                  ? "Reopen"
+                  : "Complete"}
+              </button>
+            )}
           </div>
         )
       )}
@@ -4149,11 +4188,9 @@ function ProjectTable({
                 </td>
 
                 <td className="px-6 py-4">
-                  <span className="rounded-full bg-orange-100 px-3 py-1 text-sm text-orange-700">
-                    {getStatusName(
-                      project.status_id
-                    )}
-                  </span>
+                  <StatusBadge
+                    statusName={getStatusName(project.status_id)}
+                  />
                 </td>
 
                 <td className="px-6 py-4 text-gray-600">
@@ -4245,10 +4282,7 @@ function DetailItem({
   value,
 }: {
   label: string;
-  value:
-    | string
-    | null
-    | undefined;
+  value: React.ReactNode;
 }) {
   return (
     <div className="rounded-lg bg-gray-50 p-4">
