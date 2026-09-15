@@ -282,14 +282,14 @@ function getStatusBadgeClass(statusName: string) {
       return "bg-blue-900 text-white ring-blue-900";
     case "active/in progress":
     case "active":
-      return "bg-amber-100 text-amber-800 ring-amber-200";
+      return "bg-blue-100 text-blue-800 ring-blue-200";
     case "submittal":
     case "submittal stage":
-      return "bg-purple-100 text-purple-800 ring-purple-200";
+      return "bg-yellow-100 text-yellow-800 ring-yellow-200";
     case "awaiting decision":
       return "bg-orange-100 text-orange-800 ring-orange-200";
     case "adjusted":
-      return "bg-pink-100 text-pink-800 ring-pink-200";
+      return "bg-gray-200 text-gray-700 ring-gray-300";
     case "purchase order":
       return "bg-emerald-700 text-white ring-emerald-700";
     case "new lead":
