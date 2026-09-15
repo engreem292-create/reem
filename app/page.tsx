@@ -352,6 +352,9 @@ useState<FollowUp[]>([]);
 
   const [projectSearch, setProjectSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
+  const [customerGroupFilter, setCustomerGroupFilter] = useState<
+    Company["customer_group"]
+  >("general_customer");
 
   const [projectView, setProjectView] =
     useState<ProjectView>("active");
@@ -1539,10 +1542,13 @@ if (result.error) {
 
   const filteredCustomers = useMemo(() => {
     const search = customerSearch.trim().toLowerCase();
+    const groupedCompanies = companies.filter(
+      (company) => company.customer_group === customerGroupFilter
+    );
 
-    if (!search) return companies;
+    if (!search) return groupedCompanies;
 
-    return companies.filter((company) => {
+    return groupedCompanies.filter((company) => {
       const values = [
         company.name,
         company.phone,
@@ -1564,7 +1570,7 @@ if (result.error) {
             .includes(search)
       );
     });
-  }, [companies, companyContacts, customerSearch]);
+  }, [companies, companyContacts, customerGroupFilter, customerSearch]);
 
   const today = getTodayString();
 
@@ -2105,11 +2111,60 @@ if (!session) {
 
               <button
                 type="button"
-                onClick={() => openNewCustomer(false)}
+                onClick={() =>
+                  openNewCustomer(
+                    false,
+                    customerGroupFilter === "contracting_company"
+                      ? "contracting"
+                      : customerGroupFilter === "consultant_company"
+                        ? "consultant"
+                        : "customer"
+                  )
+                }
                 className="rounded-lg bg-green-600 px-5 py-3 font-medium text-white hover:bg-green-700"
               >
-                + Add Customer
+                + Add {customerGroupFilter === "consultant_company"
+                  ? "Consultant"
+                  : customerGroupFilter === "contracting_company"
+                    ? "Contractor"
+                    : "Client"}
               </button>
+            </div>
+
+            <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {([
+                ["consultant_company", "Consultants"],
+                ["contracting_company", "Contractors"],
+                ["general_customer", "Clients"],
+              ] as const).map(([value, label]) => {
+                const count = companies.filter(
+                  (company) => company.customer_group === value
+                ).length;
+
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setCustomerGroupFilter(value)}
+                    className={
+                      customerGroupFilter === value
+                        ? "rounded-xl bg-green-600 px-5 py-4 text-left font-semibold text-white shadow-sm"
+                        : "rounded-xl border border-gray-200 bg-white px-5 py-4 text-left font-semibold text-gray-700 shadow-sm hover:border-green-300 hover:bg-green-50"
+                    }
+                  >
+                    <span className="block">{label}</span>
+                    <span
+                      className={
+                        customerGroupFilter === value
+                          ? "mt-1 block text-sm font-normal text-green-100"
+                          : "mt-1 block text-sm font-normal text-gray-500"
+                      }
+                    >
+                      {count} {count === 1 ? "record" : "records"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="mb-5 rounded-xl bg-white p-4 shadow-sm">
@@ -2120,7 +2175,13 @@ if (!session) {
                     event.target.value
                   )
                 }
-                placeholder="Search customers..."
+                placeholder={`Search ${
+                  customerGroupFilter === "consultant_company"
+                    ? "consultants"
+                    : customerGroupFilter === "contracting_company"
+                      ? "contractors"
+                      : "clients"
+                }...`}
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-green-500"
               />
             </div>
