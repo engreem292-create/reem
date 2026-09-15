@@ -219,6 +219,30 @@ const emptyProject: ProjectForm = {
   specificationMismatch: "",
 };
 
+const LOST_REASON_OPTIONS = [
+  "High Price",
+  "Not Awarded to Contractor",
+  "Specification Mismatch",
+  "Pricing Only",
+  "Brand Not Approved",
+  "Payment Terms",
+  "Country of Origin Not Approved",
+  "UGR Not Accepted",
+] as const;
+
+function normalizeStatusGroup(statusName: string) {
+  const normalized = statusName.trim().toLowerCase();
+  if (normalized === "won" || normalized === "awarded") return "awarded";
+  if (normalized === "submittal") return "submittal stage";
+  return normalized;
+}
+
+function getStatusGroupLabel(group: string) {
+  if (group === "awarded") return "Awarded / Won";
+  if (group === "submittal stage") return "Submittal Stage";
+  return group.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 const emptyCustomer: CustomerForm = {
   name: "",
   phone: "",
@@ -361,6 +385,7 @@ const [projectAssignedToFilter, setProjectAssignedToFilter] =
   useState("all");
 const [projectCompanyFilter, setProjectCompanyFilter] =
   useState<string | null>(null);
+const [projectStatusFilter, setProjectStatusFilter] = useState("all");
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -613,6 +638,16 @@ async function handleLogout() {
     const status = statuses.find((item) => item.id === id);
 
     return status ? status.name : "-";
+  }
+
+  function openProjectsForStatus(statusGroup: string) {
+    setProjectStatusFilter(statusGroup);
+    setProjectCompanyFilter(null);
+    setProjectSearch("");
+    setProjectAssignedToFilter("all");
+    setProjectView("all");
+    setProjectSort("date_desc");
+    setPage("projects");
   }
 
   function getProfileName(id: string | null) {
@@ -941,6 +976,15 @@ projectForm.statusId &&
 ) {
 setError("Please select a valid project status.");
 return;
+}
+
+if (
+  normalizeStatusGroup(getStatusName(projectForm.statusId)) === "lost" &&
+  (!projectForm.rejectionReason.trim() ||
+    projectForm.rejectionReason === "__other__")
+) {
+  setError("Please select or enter a lost reason.");
+  return;
 }
 
     setSaving(true);
@@ -1533,6 +1577,14 @@ if (result.error) {
       );
     }
 
+    if (projectStatusFilter !== "all") {
+      result = result.filter(
+        (project) =>
+          normalizeStatusGroup(getStatusName(project.status_id)) ===
+          projectStatusFilter
+      );
+    }
+
     if (search) {
       result = result.filter((project) => {
         const values = [
@@ -1629,12 +1681,31 @@ if (result.error) {
     projectSearch,
     projectAssignedToFilter,
     projectCompanyFilter,
+    projectStatusFilter,
     projectView,
     projectSort,
     companies,
     statuses,
     profiles,
   ]);
+
+  const projectStatusSummary = useMemo(() => {
+    const summary = new Map<string, number>();
+    accessibleProjects.forEach((project) => {
+      const statusName = getStatusName(project.status_id);
+      if (!statusName || statusName === "-") return;
+      const group = normalizeStatusGroup(statusName);
+      summary.set(group, (summary.get(group) || 0) + 1);
+    });
+
+    return Array.from(summary.entries())
+      .map(([group, count]) => ({
+        group,
+        label: getStatusGroupLabel(group),
+        count,
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }, [accessibleProjects, statuses]);
 
   const filteredCustomers = useMemo(() => {
     const search = customerSearch.trim().toLowerCase();
@@ -1974,6 +2045,31 @@ if (!session) {
               />
             </div>
 
+            <div className="mb-8 rounded-xl bg-white p-6 shadow-sm">
+              <div className="mb-4">
+                <h3 className="text-xl font-semibold">Projects by Status</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Select a status to see all matching projects.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+                {projectStatusSummary.map((item) => (
+                  <button
+                    key={item.group}
+                    type="button"
+                    onClick={() => openProjectsForStatus(item.group)}
+                    className="rounded-lg border border-gray-200 p-4 text-left transition hover:border-green-500 hover:bg-green-50"
+                  >
+                    <StatusBadge statusName={item.label} />
+                    <p className="mt-3 text-2xl font-bold text-gray-900">
+                      {item.count}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="rounded-xl bg-white shadow-sm">
               <div className="flex items-center justify-between border-b p-6">
                 <h3 className="text-xl font-semibold">
@@ -2066,6 +2162,21 @@ if (!session) {
                     className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
                   >
                     Clear Company Filter
+                  </button>
+                </div>
+              )}
+
+              {projectStatusFilter !== "all" && (
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 p-3">
+                  <p className="text-sm font-medium text-green-900">
+                    Showing status: {getStatusGroupLabel(projectStatusFilter)}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setProjectStatusFilter("all")}
+                    className="rounded-lg border border-green-300 bg-white px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100"
+                  >
+                    Clear Status Filter
                   </button>
                 </div>
               )}
@@ -2887,12 +2998,20 @@ if (!session) {
               <SelectInput
                 label="Status"
                 value={projectForm.statusId}
-                onChange={(value) =>
+                onChange={(value) => {
+                  const selectedStatus = statuses.find(
+                    (status) => status.id === value
+                  );
+                  const isLost =
+                    normalizeStatusGroup(selectedStatus?.name || "") === "lost";
                   setProjectForm({
                     ...projectForm,
                     statusId: value,
-                  })
-                }
+                    rejectionReason: isLost
+                      ? projectForm.rejectionReason
+                      : "",
+                  });
+                }}
                 options={statuses.map(
                   (status) => ({
                     value: status.id,
@@ -3012,17 +3131,60 @@ if (!session) {
               placeholder="Project notes..."
             />
 
-            <TextArea
-              label="Rejection Reason"
-              value={projectForm.rejectionReason}
-              onChange={(value) =>
-                setProjectForm({
-                  ...projectForm,
-                  rejectionReason: value,
-                })
-              }
-              placeholder="If rejected, enter the reason..."
-            />
+            {normalizeStatusGroup(getStatusName(projectForm.statusId)) ===
+              "lost" && (
+              <>
+                <SelectInput
+                  label="Lost Reason"
+                  value={
+                    !projectForm.rejectionReason
+                      ? ""
+                      : LOST_REASON_OPTIONS.includes(
+                          projectForm.rejectionReason as (typeof LOST_REASON_OPTIONS)[number]
+                        )
+                        ? projectForm.rejectionReason
+                        : "__other__"
+                  }
+                  onChange={(value) =>
+                    setProjectForm({
+                      ...projectForm,
+                      rejectionReason:
+                        value === "__other__" ? "__other__" : value,
+                    })
+                  }
+                  options={[
+                    ...LOST_REASON_OPTIONS.map((reason) => ({
+                      value: reason,
+                      label: reason,
+                    })),
+                    { value: "__other__", label: "Other" },
+                  ]}
+                  placeholder="Select lost reason"
+                />
+
+                {projectForm.rejectionReason &&
+                  !LOST_REASON_OPTIONS.includes(
+                    projectForm.rejectionReason as (typeof LOST_REASON_OPTIONS)[number]
+                  ) && (
+                    <TextInput
+                      label="Other Lost Reason"
+                      value={
+                        projectForm.rejectionReason === "__other__"
+                          ? ""
+                          : projectForm.rejectionReason
+                      }
+                      onChange={(value) =>
+                        setProjectForm({
+                          ...projectForm,
+                          rejectionReason: value || "__other__",
+                        })
+                      }
+                      placeholder="Enter the lost reason"
+                      required
+                    />
+                  )}
+              </>
+            )}
 
             <TextArea
               label="Specification Mismatch"
@@ -3686,7 +3848,7 @@ if (!session) {
             />
 
             <DetailText
-              label="Rejection Reason"
+              label="Lost Reason"
               value={
                 selectedProject.rejection_reason
               }
