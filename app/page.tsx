@@ -359,6 +359,8 @@ const [followUpFilter, setFollowUpFilter] = useState<
 const [assignedToFilter, setAssignedToFilter] = useState("all");
 const [projectAssignedToFilter, setProjectAssignedToFilter] =
   useState("all");
+const [projectCompanyFilter, setProjectCompanyFilter] =
+  useState<string | null>(null);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -586,6 +588,15 @@ async function handleLogout() {
     const company = companies.find((item) => item.id === id);
 
     return company ? company.name : "-";
+  }
+
+  function openCompanyProjects(company: Company) {
+    setProjectCompanyFilter(company.id);
+    setProjectSearch("");
+    setProjectAssignedToFilter("all");
+    setProjectView("all");
+    setProjectSort("date_desc");
+    setPage("projects");
   }
 
   function getCustomerGroupLabel(group: Company["customer_group"]) {
@@ -1475,6 +1486,16 @@ if (result.error) {
       );
     }
 
+    if (projectCompanyFilter) {
+      result = result.filter(
+        (project) =>
+          project.customer_id === projectCompanyFilter ||
+          project.contracting_company_id === projectCompanyFilter ||
+          project.contractor_id === projectCompanyFilter ||
+          project.consultant_id === projectCompanyFilter
+      );
+    }
+
     if (search) {
       result = result.filter((project) => {
         const values = [
@@ -1570,6 +1591,7 @@ if (result.error) {
     accessibleProjects,
     projectSearch,
     projectAssignedToFilter,
+    projectCompanyFilter,
     projectView,
     projectSort,
     companies,
@@ -1994,6 +2016,23 @@ if (!session) {
             </div>
 
             <div className="mb-5 rounded-xl bg-white p-4 shadow-sm">
+              {projectCompanyFilter && (
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+                  <p className="text-sm font-medium text-blue-900">
+                    Showing all projects connected to{" "}
+                    {getCompanyName(projectCompanyFilter)}
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => setProjectCompanyFilter(null)}
+                    className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+                  >
+                    Clear Company Filter
+                  </button>
+                </div>
+              )}
+
               <div className="mb-4">
                 <input
                   value={projectSearch}
@@ -2292,7 +2331,14 @@ if (!session) {
                             className="border-t border-gray-100 hover:bg-gray-50"
                           >
                             <td className="px-6 py-4 font-medium">
-                              {company.name}
+                              <button
+                                type="button"
+                                onClick={() => openCompanyProjects(company)}
+                                className="text-left font-semibold text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-900"
+                                title="View all projects connected to this company"
+                              >
+                                {company.name}
+                              </button>
                             </td>
 
                             <td className="px-6 py-4 text-gray-600">
