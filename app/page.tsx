@@ -387,6 +387,9 @@ const [projectAssignedToFilter, setProjectAssignedToFilter] =
 const [projectCompanyFilter, setProjectCompanyFilter] =
   useState<string | null>(null);
 const [projectStatusFilter, setProjectStatusFilter] = useState("all");
+const [lostReasonFilter, setLostReasonFilter] = useState("all");
+const [projectDateFrom, setProjectDateFrom] = useState("");
+const [projectDateTo, setProjectDateTo] = useState("");
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -643,6 +646,9 @@ async function handleLogout() {
 
   function openProjectsForStatus(statusGroup: string) {
     setProjectStatusFilter(statusGroup);
+    setLostReasonFilter("all");
+    setProjectDateFrom("");
+    setProjectDateTo("");
     setProjectCompanyFilter(null);
     setProjectSearch("");
     setProjectAssignedToFilter("all");
@@ -1586,6 +1592,27 @@ if (result.error) {
       );
     }
 
+    if (lostReasonFilter !== "all") {
+      result = result.filter(
+        (project) =>
+          (project.rejection_reason || "Unspecified") === lostReasonFilter
+      );
+    }
+
+    if (projectDateFrom) {
+      result = result.filter(
+        (project) =>
+          Boolean(project.project_date) && project.project_date! >= projectDateFrom
+      );
+    }
+
+    if (projectDateTo) {
+      result = result.filter(
+        (project) =>
+          Boolean(project.project_date) && project.project_date! <= projectDateTo
+      );
+    }
+
     if (search) {
       result = result.filter((project) => {
         const values = [
@@ -1683,6 +1710,9 @@ if (result.error) {
     projectAssignedToFilter,
     projectCompanyFilter,
     projectStatusFilter,
+    lostReasonFilter,
+    projectDateFrom,
+    projectDateTo,
     projectView,
     projectSort,
     companies,
@@ -1707,6 +1737,50 @@ if (result.error) {
       }))
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
   }, [accessibleProjects, statuses]);
+
+  const selectedStatusProjects = useMemo(() => {
+    if (projectStatusFilter === "all") return [];
+    return accessibleProjects.filter(
+      (project) =>
+        normalizeStatusGroup(getStatusName(project.status_id)) ===
+        projectStatusFilter
+    );
+  }, [accessibleProjects, projectStatusFilter, statuses]);
+
+  const selectedStatusCost = useMemo(
+    () =>
+      selectedStatusProjects.reduce(
+        (total, project) => total + (project.estimated_cost_jd || 0),
+        0
+      ),
+    [selectedStatusProjects]
+  );
+
+  const lostReasonSummary = useMemo(() => {
+    const summary = new Map<string, { count: number; cost: number }>();
+    selectedStatusProjects.forEach((project) => {
+      const reason = project.rejection_reason?.trim() || "Unspecified";
+      const current = summary.get(reason) || { count: 0, cost: 0 };
+      summary.set(reason, {
+        count: current.count + 1,
+        cost: current.cost + (project.estimated_cost_jd || 0),
+      });
+    });
+    return Array.from(summary.entries())
+      .map(([reason, values]) => ({ reason, ...values }))
+      .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason));
+  }, [selectedStatusProjects]);
+
+  const statusSalespersonSummary = useMemo(() => {
+    const summary = new Map<string, number>();
+    selectedStatusProjects.forEach((project) => {
+      const name = getTeamMemberName(project.assigned_to);
+      summary.set(name, (summary.get(name) || 0) + 1);
+    });
+    return Array.from(summary.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [selectedStatusProjects, teamMembers]);
 
   const filteredCustomers = useMemo(() => {
     const search = customerSearch.trim().toLowerCase();
@@ -2168,17 +2242,117 @@ if (!session) {
               )}
 
               {projectStatusFilter !== "all" && (
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 p-3">
-                  <p className="text-sm font-medium text-green-900">
-                    Showing status: {getStatusGroupLabel(projectStatusFilter)}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setProjectStatusFilter("all")}
-                    className="rounded-lg border border-green-300 bg-white px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100"
-                  >
-                    Clear Status Filter
-                  </button>
+                <div className="mb-5 rounded-xl border border-green-200 bg-green-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-semibold text-green-900">
+                      {getStatusGroupLabel(projectStatusFilter)} Projects Report
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProjectStatusFilter("all");
+                        setLostReasonFilter("all");
+                        setProjectDateFrom("");
+                        setProjectDateTo("");
+                      }}
+                      className="rounded-lg border border-green-300 bg-white px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100"
+                    >
+                      Close Status Report
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-lg bg-white p-4 shadow-sm">
+                      <p className="text-sm text-gray-500">Total Projects</p>
+                      <p className="mt-1 text-2xl font-bold">{selectedStatusProjects.length}</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-4 shadow-sm">
+                      <p className="text-sm text-gray-500">Total Estimated Cost</p>
+                      <p className="mt-1 text-2xl font-bold">
+                        {selectedStatusCost.toLocaleString()} JD
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-white p-4 shadow-sm sm:col-span-2">
+                      <p className="mb-2 text-sm text-gray-500">Projects by Salesperson</p>
+                      <div className="flex flex-wrap gap-2">
+                        {statusSalespersonSummary.map((item) => (
+                          <span key={item.name} className="rounded-full bg-gray-100 px-3 py-1 text-sm">
+                            {item.name}: <strong>{item.count}</strong>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {projectStatusFilter === "lost" && (
+                    <div className="mt-4 rounded-lg bg-white p-4 shadow-sm">
+                      <p className="mb-3 font-semibold">Lost Projects by Reason</p>
+                      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        {lostReasonSummary.map((item) => (
+                          <button
+                            key={item.reason}
+                            type="button"
+                            onClick={() => setLostReasonFilter(item.reason)}
+                            className={
+                              lostReasonFilter === item.reason
+                                ? "rounded-lg border border-red-500 bg-red-50 p-3 text-left"
+                                : "rounded-lg border border-gray-200 p-3 text-left hover:border-red-300 hover:bg-red-50"
+                            }
+                          >
+                            <p className="font-medium">{item.reason}</p>
+                            <p className="mt-1 text-sm text-gray-600">
+                              {item.count} project{item.count === 1 ? "" : "s"} · {item.cost.toLocaleString()} JD
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    {projectStatusFilter === "lost" && (
+                      <select
+                        value={lostReasonFilter}
+                        onChange={(event) => setLostReasonFilter(event.target.value)}
+                        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="all">All Lost Reasons</option>
+                        {lostReasonSummary.map((item) => (
+                          <option key={item.reason} value={item.reason}>{item.reason}</option>
+                        ))}
+                      </select>
+                    )}
+                    <select
+                      value={projectCompanyFilter || "all"}
+                      onChange={(event) =>
+                        setProjectCompanyFilter(event.target.value === "all" ? null : event.target.value)
+                      }
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="all">All Companies</option>
+                      {companies.map((company) => (
+                        <option key={company.id} value={company.id}>{company.name}</option>
+                      ))}
+                    </select>
+                    <label className="text-xs font-medium text-gray-600">
+                      Project Date From
+                      <input
+                        type="date"
+                        value={projectDateFrom}
+                        onChange={(event) => setProjectDateFrom(event.target.value)}
+                        className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+                      />
+                    </label>
+                    <label className="text-xs font-medium text-gray-600">
+                      Project Date To
+                      <input
+                        type="date"
+                        value={projectDateTo}
+                        onChange={(event) => setProjectDateTo(event.target.value)}
+                        className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+                      />
+                    </label>
+                  </div>
                 </div>
               )}
 
@@ -2329,6 +2503,7 @@ if (!session) {
                 onCopy={openCopyProject}
                 onEdit={openEditProject}
                 onDetails={openProjectDetails}
+                showLostReason={projectStatusFilter === "lost"}
               />
             </div>
           </>
@@ -4269,6 +4444,7 @@ function ProjectTable({
   onCopy,
   onEdit,
   onDetails,
+  showLostReason = false,
 }: {
   projects: Project[];
   loading: boolean;
@@ -4284,6 +4460,7 @@ function ProjectTable({
   onCopy: (project: Project) => void;
   onEdit: (project: Project) => void;
   onDetails: (project: Project) => void;
+  showLostReason?: boolean;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -4334,6 +4511,12 @@ function ProjectTable({
               <th className="px-6 py-4 text-left text-sm font-semibold">
                 Status
               </th>
+
+              {showLostReason && (
+                <th className="min-w-48 px-6 py-4 text-left text-sm font-semibold">
+                  Lost Reason
+                </th>
+              )}
 
               <th className="px-6 py-4 text-left text-sm font-semibold">
                 Assigned To
@@ -4429,6 +4612,12 @@ function ProjectTable({
                     statusName={getStatusName(project.status_id)}
                   />
                 </td>
+
+                {showLostReason && (
+                  <td className="px-6 py-4 text-gray-600">
+                    {project.rejection_reason || "Unspecified"}
+                  </td>
+                )}
 
                 <td className="px-6 py-4 text-gray-600">
                   {getProfileName(
