@@ -1935,6 +1935,19 @@ if (!session) {
                   .filter(
                     (project) => !project.hidden
                   )
+                  .sort((a, b) => {
+                    if (!a.project_date) return 1;
+                    if (!b.project_date) return -1;
+
+                    const dateComparison =
+                      b.project_date.localeCompare(a.project_date);
+
+                    if (dateComparison !== 0) {
+                      return dateComparison;
+                    }
+
+                    return b.created_at.localeCompare(a.created_at);
+                  })
                   .slice(0, 10)}
                 loading={loading}
                 getCompanyName={getCompanyName}
