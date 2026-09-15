@@ -3928,7 +3928,7 @@ function ProjectTable({
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-4 text-left text-sm font-semibold">
+              <th className="min-w-40 whitespace-nowrap px-6 py-4 text-left text-sm font-semibold">
                 SN
               </th>
 
@@ -3980,7 +3980,7 @@ function ProjectTable({
                     : "border-t border-gray-100 hover:bg-gray-50"
                 }
               >
-                <td className="px-6 py-4 font-medium">
+                <td className="whitespace-nowrap px-6 py-4 font-medium">
                   {project.sn || "-"}
                 </td>
 
