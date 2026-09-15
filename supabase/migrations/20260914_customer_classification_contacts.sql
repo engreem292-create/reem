@@ -1,4 +1,10 @@
 alter table public.companies
+  add column if not exists active boolean not null default true;
+
+alter table public.companies
+  add column if not exists customer_group text not null default 'general_customer';
+
+alter table public.companies
   add column if not exists general_customer_type text;
 
 alter table public.companies
