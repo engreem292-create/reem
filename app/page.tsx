@@ -459,7 +459,7 @@ const {
   data: { session },
 } = await supabase.auth.getSession();
 
-console.log("SUPABASE SESSION:", session);
+
     const [
       projectsResult,
       companiesResult,
