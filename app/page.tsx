@@ -28,8 +28,25 @@ type Company = {
   phone: string | null;
   email: string | null;
   notes: string | null;
-  customer_group: "contractor" | "consultant" | "general_customer";
+  customer_group: "contracting_company" | "consultant_company" | "general_customer";
+  general_customer_type: "company" | "person" | null;
   active: boolean;
+};
+
+type CompanyContact = {
+  id: string;
+  company_id: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  active: boolean;
+};
+
+type CustomerContactForm = {
+  id?: string;
+  fullName: string;
+  phone: string;
+  email: string;
 };
 
 type Profile = {
@@ -166,7 +183,9 @@ type CustomerForm = {
   phone: string;
   email: string;
   notes: string;
-  customerGroup: "contractor" | "consultant" | "general_customer";
+  customerGroup: "contracting_company" | "consultant_company" | "general_customer";
+  generalCustomerType: "company" | "person";
+  contacts: CustomerContactForm[];
 };
 
 type FollowUpForm = {
@@ -203,6 +222,8 @@ const emptyCustomer: CustomerForm = {
   email: "",
   notes: "",
   customerGroup: "general_customer",
+  generalCustomerType: "company",
+  contacts: [],
 };
 
 const emptyFollowUp: FollowUpForm = {
@@ -292,6 +313,7 @@ const [projectAssignedToFilter, setProjectAssignedToFilter] =
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [companyContacts, setCompanyContacts] = useState<CompanyContact[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [statuses, setStatuses] = useState<ProjectStatus[]>(DEFAULT_STATUSES);
@@ -309,6 +331,9 @@ useState<FollowUp[]>([]);
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [customerModalFromProject, setCustomerModalFromProject] = useState(false);
+  const [customerModalProjectField, setCustomerModalProjectField] = useState<
+    "customer" | "contracting" | "consultant"
+  >("customer");
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
 
@@ -352,6 +377,7 @@ console.log("SUPABASE SESSION:", session);
     const [
       projectsResult,
       companiesResult,
+      companyContactsResult,
       profilesResult,
       teamMembersResult,
       statusesResult,
@@ -366,8 +392,13 @@ console.log("SUPABASE SESSION:", session);
 
       supabase
         .from("companies")
-        .select("id,name,phone,email,notes,customer_group,active")
+        .select("id,name,phone,email,notes,customer_group,general_customer_type,active")
         .order("name", { ascending: true }),
+
+      supabase
+        .from("company_contacts")
+        .select("id,company_id,full_name,phone,email,active")
+        .order("full_name", { ascending: true }),
 
       supabase
         .from("profiles")
@@ -414,6 +445,14 @@ console.log("SUPABASE SESSION:", session);
       hasError = true;
     } else {
       setCompanies((companiesResult.data || []) as Company[]);
+    }
+
+    if (companyContactsResult.error) {
+      console.error("COMPANY CONTACTS ERROR:", companyContactsResult.error);
+      setError("Customer contacts: " + companyContactsResult.error.message);
+      hasError = true;
+    } else {
+      setCompanyContacts((companyContactsResult.data || []) as CompanyContact[]);
     }
 
     if (profilesResult.error) {
@@ -497,8 +536,8 @@ async function handleLogout() {
   }
 
   function getCustomerGroupLabel(group: Company["customer_group"]) {
-    if (group === "contractor") return "Contractor";
-    if (group === "consultant") return "Consultant";
+    if (group === "contracting_company") return "Contracting Co";
+    if (group === "consultant_company") return "Consultant Co";
     return "General Customer";
   }
 
@@ -633,10 +672,20 @@ async function handleLogout() {
     setShowFollowUpModal(true);
   }
 
-  function openNewCustomer(fromProject = false) {
+  function openNewCustomer(
+    fromProject = false,
+    projectField: "customer" | "contracting" | "consultant" = "customer"
+  ) {
     setEditingCustomerId(null);
-    setCustomerForm({ ...emptyCustomer });
+    const customerGroup =
+      projectField === "contracting"
+        ? "contracting_company"
+        : projectField === "consultant"
+          ? "consultant_company"
+          : "general_customer";
+    setCustomerForm({ ...emptyCustomer, customerGroup });
     setCustomerModalFromProject(fromProject);
+    setCustomerModalProjectField(projectField);
     setCustomerFormError("");
     setError("");
     setShowCustomerModal(true);
@@ -651,6 +700,15 @@ async function handleLogout() {
       email: company.email || "",
       notes: company.notes || "",
       customerGroup: company.customer_group || "general_customer",
+      generalCustomerType: company.general_customer_type || "company",
+      contacts: companyContacts
+        .filter((contact) => contact.company_id === company.id)
+        .map((contact) => ({
+          id: contact.id,
+          fullName: contact.full_name,
+          phone: contact.phone || "",
+          email: contact.email || "",
+        })),
     });
 
     setCustomerModalFromProject(false);
@@ -922,6 +980,10 @@ await loadData(false);
       email: customerForm.email.trim() || null,
       notes: customerForm.notes.trim() || null,
       customer_group: customerForm.customerGroup,
+      general_customer_type:
+        customerForm.customerGroup === "general_customer"
+          ? customerForm.generalCustomerType
+          : null,
     };
 
     let result;
@@ -931,13 +993,13 @@ await loadData(false);
         .from("companies")
         .update(companyData)
         .eq("id", editingCustomerId)
-        .select("id,name,phone,email,notes,customer_group,active")
+        .select("id,name,phone,email,notes,customer_group,general_customer_type,active")
         .single();
     } else {
       result = await supabase
         .from("companies")
         .insert(companyData)
-        .select("id,name,phone,email,notes,customer_group,active")
+        .select("id,name,phone,email,notes,customer_group,general_customer_type,active")
         .single();
     }
 
@@ -950,15 +1012,69 @@ await loadData(false);
 
     const savedCustomer = result.data as Company;
 
+    const contactsToSave = customerForm.contacts
+      .map((contact) => ({
+        company_id: savedCustomer.id,
+        full_name: contact.fullName.trim(),
+        phone: contact.phone.trim() || null,
+        email: contact.email.trim() || null,
+        active: true,
+      }))
+      .filter((contact) => contact.full_name);
+
+    const deleteContactsResult = await supabase
+      .from("company_contacts")
+      .delete()
+      .eq("company_id", savedCustomer.id);
+
+    if (deleteContactsResult.error) {
+      setEditingCustomerId(savedCustomer.id);
+      setCustomerFormError("Customer saved, but contacts could not be updated: " + deleteContactsResult.error.message);
+      setSavingCustomer(false);
+      return;
+    }
+
+    let savedContacts: CompanyContact[] = [];
+    if (contactsToSave.length > 0) {
+      const contactsResult = await supabase
+        .from("company_contacts")
+        .insert(contactsToSave)
+        .select("id,company_id,full_name,phone,email,active");
+
+      if (contactsResult.error) {
+        setEditingCustomerId(savedCustomer.id);
+        setCustomerFormError("Customer saved, but contacts could not be added: " + contactsResult.error.message);
+        setSavingCustomer(false);
+        return;
+      }
+
+      savedContacts = (contactsResult.data || []) as CompanyContact[];
+    }
+
     setCompanies((current) =>
       [...current.filter((company) => company.id !== savedCustomer.id), savedCustomer]
         .sort((a, b) => a.name.localeCompare(b.name))
     );
+    setCompanyContacts((current) => [
+      ...current.filter((contact) => contact.company_id !== savedCustomer.id),
+      ...savedContacts,
+    ]);
 
     if (customerModalFromProject && !editingCustomerId) {
       setProjectForm((current) => ({
         ...current,
-        customerId: savedCustomer.id,
+        customerId:
+          customerModalProjectField === "customer"
+            ? savedCustomer.id
+            : current.customerId,
+        contractingCompanyId:
+          customerModalProjectField === "contracting"
+            ? savedCustomer.id
+            : current.contractingCompanyId,
+        consultantId:
+          customerModalProjectField === "consultant"
+            ? savedCustomer.id
+            : current.consultantId,
       }));
     }
 
@@ -976,7 +1092,7 @@ await loadData(false);
       .from("companies")
       .update({ active: !company.active })
       .eq("id", company.id)
-      .select("id,name,phone,email,notes,customer_group,active")
+      .select("id,name,phone,email,notes,customer_group,general_customer_type,active")
       .single();
 
     if (result.error) {
@@ -1372,6 +1488,10 @@ if (result.error) {
         company.email,
         company.notes,
         getCustomerGroupLabel(company.customer_group),
+        company.general_customer_type,
+        ...companyContacts
+          .filter((contact) => contact.company_id === company.id)
+          .flatMap((contact) => [contact.full_name, contact.phone, contact.email]),
         company.active ? "active" : "inactive",
       ];
 
@@ -1383,7 +1503,7 @@ if (result.error) {
             .includes(search)
       );
     });
-  }, [companies, customerSearch]);
+  }, [companies, companyContacts, customerSearch]);
 
   const today = getTodayString();
 
@@ -1977,6 +2097,10 @@ if (!session) {
                         </th>
 
                         <th className="px-6 py-4 text-left text-sm font-semibold">
+                          Related People
+                        </th>
+
+                        <th className="px-6 py-4 text-left text-sm font-semibold">
                           Notes
                         </th>
 
@@ -2007,12 +2131,24 @@ if (!session) {
 
                             <td className="px-6 py-4 text-gray-600">
                               {getCustomerGroupLabel(company.customer_group)}
+                              {company.customer_group === "general_customer" && (
+                                <span className="ml-1 text-xs text-gray-400">
+                                  ({company.general_customer_type === "person" ? "Person" : "Company"})
+                                </span>
+                              )}
                             </td>
 
                             <td className="px-6 py-4">
                               <span className={`rounded-full px-3 py-1 text-xs font-medium ${company.active ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-600"}`}>
                                 {company.active ? "Active" : "Inactive"}
                               </span>
+                            </td>
+
+                            <td className="px-6 py-4 text-gray-600">
+                              {companyContacts
+                                .filter((contact) => contact.company_id === company.id)
+                                .map((contact) => contact.full_name)
+                                .join(", ") || "-"}
                             </td>
 
                             <td className="px-6 py-4 text-gray-600">
@@ -2326,11 +2462,11 @@ if (!session) {
               />
 
               <SelectInput
-                label="Customer"
+                label="General Customer"
                 value={projectForm.customerId}
                 onChange={(value) => {
                   if (value === "__new_customer__") {
-                    openNewCustomer(true);
+                    openNewCustomer(true, "customer");
                     return;
                   }
 
@@ -2345,87 +2481,104 @@ if (!session) {
                     label: "+ New Customer",
                   },
                   ...companies.filter(
-                    (company) => company.active || company.id === projectForm.customerId
+                    (company) =>
+                      company.customer_group === "general_customer" &&
+                      (company.active || company.id === projectForm.customerId)
                   ).map(
                   (company) => ({
                     value: company.id,
-                    label: `${company.name} (${getCustomerGroupLabel(company.customer_group)})`,
+                    label: `${company.name} (${company.general_customer_type === "person" ? "Person" : "Company"})`,
                   })
                 )]}
                 placeholder="Select customer"
               />
 
               <SelectInput
-                label="Contracting Company"
+                label="Contracting Co"
                 value={
                   projectForm.contractingCompanyId
                 }
-                onChange={(value) =>
+                onChange={(value) => {
+                  if (value === "__new_contracting_company__") {
+                    openNewCustomer(true, "contracting");
+                    return;
+                  }
                   setProjectForm({
                     ...projectForm,
-                    contractingCompanyId:
-                      value,
-                  })
-                }
-                options={companies.map(
+                    contractingCompanyId: value,
+                    contractorName: "",
+                    contractorId: "",
+                  });
+                }}
+                options={[
+                  { value: "__new_contracting_company__", label: "+ New Contracting Co" },
+                  ...companies.filter(
+                    (company) =>
+                      company.customer_group === "contracting_company" &&
+                      (company.active || company.id === projectForm.contractingCompanyId)
+                  ).map(
                   (company) => ({
                     value: company.id,
                     label: company.name,
                   })
-                )}
+                )]}
                 placeholder="Select contracting company"
               />
 
               <SelectInput
                 label="Contractor Name"
-                value={projectForm.contractorId}
-                onChange={(value) =>
-                  setProjectForm({
-                    ...projectForm,
-                    contractorId: value,
-                  })
-                }
-                options={companies.map(
-                  (company) => ({
-                    value: company.id,
-                    label: company.name,
-                  })
-                )}
-                placeholder="Select contractor"
-              />
-
-              <TextInput
-                label="Contractor Person Name"
                 value={projectForm.contractorName}
                 onChange={(value) =>
                   setProjectForm({
                     ...projectForm,
                     contractorName: value,
+                    contractorId: "",
                   })
                 }
-                placeholder="Contact person's name"
+                options={companyContacts.filter(
+                  (contact) =>
+                    contact.company_id === projectForm.contractingCompanyId &&
+                    contact.active
+                ).map(
+                  (contact) => ({
+                    value: contact.full_name,
+                    label: contact.full_name,
+                  })
+                )}
+                placeholder={projectForm.contractingCompanyId ? "Select contractor" : "Select contracting company first"}
               />
 
               <SelectInput
-                label="Consultant Company"
+                label="Consultant Co"
                 value={projectForm.consultantId}
-                onChange={(value) =>
+                onChange={(value) => {
+                  if (value === "__new_consultant_company__") {
+                    openNewCustomer(true, "consultant");
+                    return;
+                  }
                   setProjectForm({
                     ...projectForm,
                     consultantId: value,
-                  })
-                }
-                options={companies.map(
+                    consultantName: "",
+                  });
+                }}
+                options={[
+                  { value: "__new_consultant_company__", label: "+ New Consultant Co" },
+                  ...companies.filter(
+                    (company) =>
+                      company.customer_group === "consultant_company" &&
+                      (company.active || company.id === projectForm.consultantId)
+                  ).map(
                   (company) => ({
                     value: company.id,
                     label: company.name,
                   })
-                )}
-                placeholder="Select consultant"
+                )]}
+                placeholder="Select consultant company"
               />
 
-              <TextInput
-                label="Consultant Person Name"
+              <SelectInput
+                label="Consultant Name"
                 value={projectForm.consultantName}
                 onChange={(value) =>
                   setProjectForm({
@@ -2433,7 +2586,17 @@ if (!session) {
                     consultantName: value,
                   })
                 }
-                placeholder="Contact person's name"
+                options={companyContacts.filter(
+                  (contact) =>
+                    contact.company_id === projectForm.consultantId &&
+                    contact.active
+                ).map(
+                  (contact) => ({
+                    value: contact.full_name,
+                    label: contact.full_name,
+                  })
+                )}
+                placeholder={projectForm.consultantId ? "Select consultant" : "Select consultant company first"}
               />
 
               <TextInput
@@ -2669,7 +2832,12 @@ if (!session) {
             )}
 
             <TextInput
-              label="Customer / Company Name"
+              label={
+                customerForm.customerGroup === "general_customer" &&
+                customerForm.generalCustomerType === "person"
+                  ? "Person Name"
+                  : "Company Name"
+              }
               value={customerForm.name}
               onChange={(value) =>
                 setCustomerForm({
@@ -2677,7 +2845,12 @@ if (!session) {
                   name: value,
                 })
               }
-              placeholder="Company name"
+              placeholder={
+                customerForm.customerGroup === "general_customer" &&
+                customerForm.generalCustomerType === "person"
+                  ? "Person name"
+                  : "Company name"
+              }
               required
             />
 
@@ -2692,11 +2865,29 @@ if (!session) {
               }
               options={[
                 { value: "general_customer", label: "General Customer" },
-                { value: "contractor", label: "Contractor" },
-                { value: "consultant", label: "Consultant" },
+                { value: "contracting_company", label: "Contracting Co" },
+                { value: "consultant_company", label: "Consultant Co" },
               ]}
               placeholder="Select customer group"
             />
+
+            {customerForm.customerGroup === "general_customer" && (
+              <SelectInput
+                label="General Customer Type"
+                value={customerForm.generalCustomerType}
+                onChange={(value) =>
+                  setCustomerForm({
+                    ...customerForm,
+                    generalCustomerType: value as CustomerForm["generalCustomerType"],
+                  })
+                }
+                options={[
+                  { value: "company", label: "Company" },
+                  { value: "person", label: "Person" },
+                ]}
+                placeholder="Select type"
+              />
+            )}
 
             <TextInput
               label="Phone"
@@ -2734,6 +2925,100 @@ if (!session) {
               }
               placeholder="Customer notes..."
             />
+
+            {customerForm.customerGroup !== "general_customer" && (
+              <div className="space-y-4 rounded-xl border border-gray-200 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold">
+                      {customerForm.customerGroup === "contracting_company"
+                        ? "Contractor Names"
+                        : "Consultant Names"}
+                    </h3>
+                    <p className="text-sm text-gray-500">Add all people related to this company.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCustomerForm({
+                        ...customerForm,
+                        contacts: [
+                          ...customerForm.contacts,
+                          { fullName: "", phone: "", email: "" },
+                        ],
+                      })
+                    }
+                    className="rounded-lg border border-green-600 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-50"
+                  >
+                    + Add Name
+                  </button>
+                </div>
+
+                {customerForm.contacts.length === 0 ? (
+                  <p className="text-sm text-gray-500">No related names added yet.</p>
+                ) : (
+                  customerForm.contacts.map((contact, index) => (
+                    <div key={contact.id || index} className="space-y-3 rounded-lg bg-gray-50 p-3">
+                      <TextInput
+                        label="Full Name"
+                        value={contact.fullName}
+                        onChange={(value) =>
+                          setCustomerForm({
+                            ...customerForm,
+                            contacts: customerForm.contacts.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, fullName: value } : item
+                            ),
+                          })
+                        }
+                        placeholder="Full name"
+                        required
+                      />
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <TextInput
+                          label="Mobile"
+                          value={contact.phone}
+                          onChange={(value) =>
+                            setCustomerForm({
+                              ...customerForm,
+                              contacts: customerForm.contacts.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, phone: value } : item
+                              ),
+                            })
+                          }
+                          placeholder="Mobile number"
+                        />
+                        <TextInput
+                          label="Email"
+                          type="email"
+                          value={contact.email}
+                          onChange={(value) =>
+                            setCustomerForm({
+                              ...customerForm,
+                              contacts: customerForm.contacts.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, email: value } : item
+                              ),
+                            })
+                          }
+                          placeholder="Email address"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCustomerForm({
+                            ...customerForm,
+                            contacts: customerForm.contacts.filter((_, itemIndex) => itemIndex !== index),
+                          })
+                        }
+                        className="text-sm font-medium text-red-600 hover:text-red-700"
+                      >
+                        Remove Name
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
 
             <div className="flex justify-end gap-3 border-t pt-5">
               <button
