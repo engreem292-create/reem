@@ -1543,14 +1543,14 @@ if (result.error) {
 
         case "sale_desc":
           return (
-            (b.estimated_sale_jd || 0) -
-            (a.estimated_sale_jd || 0)
+            (b.estimated_cost_jd || 0) -
+            (a.estimated_cost_jd || 0)
           );
 
         case "sale_asc":
           return (
-            (a.estimated_sale_jd || 0) -
-            (b.estimated_sale_jd || 0)
+            (a.estimated_cost_jd || 0) -
+            (b.estimated_cost_jd || 0)
           );
 
         case "status":
@@ -2101,11 +2101,11 @@ if (!session) {
                     </option>
 
                     <option value="sale_desc">
-                      Estimated Sale — Highest
+                      Estimated Cost — Highest
                     </option>
 
                     <option value="sale_asc">
-                      Estimated Sale — Lowest
+                      Estimated Cost — Lowest
                     </option>
 
                     <option value="status">
@@ -2814,21 +2814,6 @@ if (!session) {
                   })
                 )}
                 placeholder="Select status"
-              />
-
-              <TextInput
-                label="Estimated Sale (JD)"
-                type="number"
-                value={
-                  projectForm.estimatedSaleJd
-                }
-                onChange={(value) =>
-                  setProjectForm({
-                    ...projectForm,
-                    estimatedSaleJd: value,
-                  })
-                }
-                placeholder="0.00"
               />
 
               <TextInput
@@ -3551,16 +3536,6 @@ if (!session) {
                   <StatusBadge
                     statusName={getStatusName(selectedProject.status_id)}
                   />
-                }
-              />
-
-              <DetailItem
-                label="Estimated Sale"
-                value={
-                  selectedProject.estimated_sale_jd ===
-                  null
-                    ? null
-                    : `${selectedProject.estimated_sale_jd} JD`
                 }
               />
 
