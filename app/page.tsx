@@ -349,6 +349,7 @@ const [email, setEmail] = useState("");
 const [password, setPassword] = useState("");
 const [loginError, setLoginError] = useState("");
 const [loggingIn, setLoggingIn] = useState(false);
+const [followUpAlertsEnabled, setFollowUpAlertsEnabled] = useState(false);
 useEffect(() => {
   let mounted = true;
 
@@ -376,6 +377,12 @@ useEffect(() => {
     subscription.unsubscribe();
   };
 }, []); 
+
+useEffect(() => {
+  setFollowUpAlertsEnabled(
+    window.localStorage.getItem("crm-follow-up-alerts") === "enabled"
+  );
+}, []);
 const [page, setPage] = useState<Page>("dashboard");
 
 const [followUpFilter, setFollowUpFilter] = useState<
@@ -458,7 +465,6 @@ setError("");
 const {
   data: { session },
 } = await supabase.auth.getSession();
-
 
     const [
       projectsResult,
@@ -552,9 +558,6 @@ const {
   throw teamMembersResult.error;
 } else {
   setTeamMembers((teamMembersResult.data || []) as TeamMember[]);
-   console.log("TEAM MEMBERS:", teamMembersResult.data);
- console.log("TEAM MEMBERS ERROR:", teamMembersResult.error);
-
 }
 if (statusesResult.error) {
 console.error("Could not load statuses:", statusesResult.error);
@@ -642,6 +645,53 @@ async function handleLogout() {
     const status = statuses.find((item) => item.id === id);
 
     return status ? status.name : "-";
+  }
+
+  function playFollowUpAlert(kind: "today" | "overdue") {
+    try {
+      const audioContext = new AudioContext();
+      const gain = audioContext.createGain();
+      gain.connect(audioContext.destination);
+      gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.18, audioContext.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.7);
+
+      const frequencies = kind === "overdue" ? [440, 330] : [660, 880];
+      frequencies.forEach((frequency, index) => {
+        const oscillator = audioContext.createOscillator();
+        oscillator.type = kind === "overdue" ? "square" : "sine";
+        oscillator.frequency.value = frequency;
+        oscillator.connect(gain);
+        oscillator.start(audioContext.currentTime + index * 0.28);
+        oscillator.stop(audioContext.currentTime + index * 0.28 + 0.24);
+      });
+
+      window.setTimeout(() => audioContext.close(), 1000);
+    } catch (soundError) {
+      console.warn("Could not play follow-up alert sound:", soundError);
+    }
+  }
+
+  async function enableFollowUpAlerts() {
+    if (!("Notification" in window)) {
+      setError("This browser does not support desktop notifications.");
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      setError("Notifications were blocked. Please allow them in the browser site settings.");
+      return;
+    }
+
+    window.localStorage.setItem("crm-follow-up-alerts", "enabled");
+    setFollowUpAlertsEnabled(true);
+    playFollowUpAlert("today");
+  }
+
+  function disableFollowUpAlerts() {
+    window.localStorage.removeItem("crm-follow-up-alerts");
+    setFollowUpAlertsEnabled(false);
   }
 
   function openProjectsForStatus(statusGroup: string) {
@@ -1846,6 +1896,75 @@ if (result.error) {
     (item) => item.follow_up_date === today
   );
 
+  useEffect(() => {
+    if (
+      loading ||
+      !session ||
+      !followUpAlertsEnabled ||
+      !("Notification" in window) ||
+      Notification.permission !== "granted"
+    ) {
+      return;
+    }
+
+    function showNotification(
+      title: string,
+      body: string,
+      filter: "today" | "overdue"
+    ) {
+      const notification = new Notification(title, {
+        body,
+        tag: `crm-${filter}-${today}`,
+      });
+      notification.onclick = () => {
+        window.focus();
+        setFollowUpFilter(filter);
+        setPage("followups");
+        notification.close();
+      };
+    }
+
+    const overdueKey = `crm-overdue-alert-${today}`;
+    const todayKey = `crm-today-alert-${today}`;
+
+    if (
+      overdueFollowUps.length > 0 &&
+      window.localStorage.getItem(overdueKey) !== "shown"
+    ) {
+      showNotification(
+        "Overdue Follow-ups",
+        `${overdueFollowUps.length} follow-up${overdueFollowUps.length === 1 ? " is" : "s are"} overdue. Click to review.`,
+        "overdue"
+      );
+      playFollowUpAlert("overdue");
+      window.localStorage.setItem(overdueKey, "shown");
+    }
+
+    if (
+      todayFollowUps.length > 0 &&
+      window.localStorage.getItem(todayKey) !== "shown"
+    ) {
+      const timer = window.setTimeout(() => {
+        showNotification(
+          "Follow-ups Due Today",
+          `${todayFollowUps.length} follow-up${todayFollowUps.length === 1 ? " is" : "s are"} due today. Click to review.`,
+          "today"
+        );
+        playFollowUpAlert("today");
+        window.localStorage.setItem(todayKey, "shown");
+      }, overdueFollowUps.length > 0 ? 900 : 0);
+
+      return () => window.clearTimeout(timer);
+    }
+  }, [
+    loading,
+    session,
+    followUpAlertsEnabled,
+    today,
+    overdueFollowUps.length,
+    todayFollowUps.length,
+  ]);
+
 const filteredFollowUps =
   followUpFilter === "open"
     ? openFollowUps
@@ -2025,6 +2144,48 @@ if (!session) {
           </div>
         )}
 
+        {!loading && (todayFollowUps.length > 0 || overdueFollowUps.length > 0) && (
+          <div className="mb-6 flex flex-wrap gap-3" role="status" aria-label="Follow-up notifications">
+            {todayFollowUps.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFollowUpFilter("today");
+                  setPage("followups");
+                }}
+                className="flex flex-1 items-center justify-between rounded-xl border border-orange-300 bg-orange-50 px-5 py-4 text-left text-orange-900 shadow-sm hover:bg-orange-100"
+              >
+                <span>
+                  <span className="block font-semibold">Follow-ups Due Today</span>
+                  <span className="text-sm">Click to open today&apos;s follow-ups.</span>
+                </span>
+                <span className="rounded-full bg-orange-500 px-3 py-1 text-lg font-bold text-white">
+                  {todayFollowUps.length}
+                </span>
+              </button>
+            )}
+
+            {overdueFollowUps.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFollowUpFilter("overdue");
+                  setPage("followups");
+                }}
+                className="flex flex-1 items-center justify-between rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-left text-red-900 shadow-sm hover:bg-red-100"
+              >
+                <span>
+                  <span className="block font-semibold">Overdue Follow-ups</span>
+                  <span className="text-sm">Click to review overdue follow-ups.</span>
+                </span>
+                <span className="rounded-full bg-red-600 px-3 py-1 text-lg font-bold text-white">
+                  {overdueFollowUps.length}
+                </span>
+              </button>
+            )}
+          </div>
+        )}
+
         {page === "dashboard" && (
           <>
             <div className="mb-8 flex items-center justify-between">
@@ -2038,13 +2199,30 @@ if (!session) {
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={openNewProject}
-                className="rounded-lg bg-green-600 px-5 py-3 font-medium text-white hover:bg-green-700"
-              >
-                + Add Project
-              </button>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={
+                    followUpAlertsEnabled
+                      ? disableFollowUpAlerts
+                      : enableFollowUpAlerts
+                  }
+                  className={
+                    followUpAlertsEnabled
+                      ? "rounded-lg border border-green-300 bg-green-50 px-4 py-3 font-medium text-green-700"
+                      : "rounded-lg border border-orange-300 bg-orange-50 px-4 py-3 font-medium text-orange-700 hover:bg-orange-100"
+                  }
+                >
+                  {followUpAlertsEnabled ? "Alerts On" : "Enable Alerts"}
+                </button>
+                <button
+                  type="button"
+                  onClick={openNewProject}
+                  className="rounded-lg bg-green-600 px-5 py-3 font-medium text-white hover:bg-green-700"
+                >
+                  + Add Project
+                </button>
+              </div>
             </div>
 
             <div className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-4">
