@@ -443,15 +443,13 @@ function StatusBadge({ statusName }: { statusName: string }) {
   );
 }
 
-function normalizeJordanianPhone(value: string) {
-  const compact = value.trim().replace(/[\s()-]/g, "");
+function mobileNumberToInternalEmail(value: string) {
+  let compact = value.trim().replace(/[\s()+-]/g, "");
 
-  if (compact.startsWith("+")) return compact;
-  if (compact.startsWith("00962")) return `+${compact.slice(2)}`;
-  if (compact.startsWith("962")) return `+${compact}`;
-  if (/^07\d{8}$/.test(compact)) return `+962${compact.slice(1)}`;
+  if (compact.startsWith("00962")) compact = compact.slice(2);
+  if (compact.startsWith("07")) compact = `962${compact.slice(1)}`;
 
-  return compact;
+  return `${compact}@mobile.specialist-cables.com`;
 }
 
 export default function Home() {
@@ -767,11 +765,14 @@ async function handleLogin(e: React.FormEvent) {
   setLoginError("");
 
   const identifier = loginIdentifier.trim();
-  const credentials = identifier.includes("@")
-    ? { email: identifier, password }
-    : { phone: normalizeJordanianPhone(identifier), password };
+  const loginEmail = identifier.includes("@")
+    ? identifier
+    : mobileNumberToInternalEmail(identifier);
 
-  const { error } = await supabase.auth.signInWithPassword(credentials);
+  const { error } = await supabase.auth.signInWithPassword({
+    email: loginEmail,
+    password,
+  });
 
   if (error) {
     setLoginError(
