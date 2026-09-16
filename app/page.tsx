@@ -443,10 +443,21 @@ function StatusBadge({ statusName }: { statusName: string }) {
   );
 }
 
+function normalizeJordanianPhone(value: string) {
+  const compact = value.trim().replace(/[\s()-]/g, "");
+
+  if (compact.startsWith("+")) return compact;
+  if (compact.startsWith("00962")) return `+${compact.slice(2)}`;
+  if (compact.startsWith("962")) return `+${compact}`;
+  if (/^07\d{8}$/.test(compact)) return `+962${compact.slice(1)}`;
+
+  return compact;
+}
+
 export default function Home() {
 const [session, setSession] = useState<any>(null);
 const [checkingAuth, setCheckingAuth] = useState(true);
-const [email, setEmail] = useState("");
+const [loginIdentifier, setLoginIdentifier] = useState("");
 const [password, setPassword] = useState("");
 const [loginError, setLoginError] = useState("");
 const [loggingIn, setLoggingIn] = useState(false);
@@ -755,13 +766,19 @@ async function handleLogin(e: React.FormEvent) {
   setLoggingIn(true);
   setLoginError("");
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  const identifier = loginIdentifier.trim();
+  const credentials = identifier.includes("@")
+    ? { email: identifier, password }
+    : { phone: normalizeJordanianPhone(identifier), password };
+
+  const { error } = await supabase.auth.signInWithPassword(credentials);
 
   if (error) {
-    setLoginError(error.message);
+    setLoginError(
+      error.message === "Invalid login credentials"
+        ? "The email/mobile number or password is incorrect."
+        : error.message
+    );
   }
 
   setLoggingIn(false);
@@ -2489,13 +2506,19 @@ if (!session) {
         </p>
 
         <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
+          type="text"
+          value={loginIdentifier}
+          onChange={(e) => setLoginIdentifier(e.target.value)}
+          placeholder="Email or mobile number"
+          autoCapitalize="none"
+          autoComplete="username"
           required
           className="mb-4 w-full rounded-lg border border-gray-300 px-4 py-3"
         />
+
+        <p className="-mt-2 mb-4 text-xs text-gray-500">
+          Jordan mobile example: 0791234567
+        </p>
 
         <input
           type="password"
