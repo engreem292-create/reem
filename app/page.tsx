@@ -156,6 +156,39 @@ type FollowUp = {
   notes: string | null;
   completed: boolean;
   completed_at: string | null;
+  completion_result: string | null;
+  contact_method: string | null;
+  completion_notes: string | null;
+  completed_by: string | null;
+  next_action: string | null;
+  next_follow_up_id: string | null;
+  reopened_at: string | null;
+  reopened_by: string | null;
+};
+
+type FollowUpActivity = {
+  id: string;
+  follow_up_id: string;
+  action: string;
+  performed_by: string | null;
+  performed_at: string;
+  completion_result: string | null;
+  contact_method: string | null;
+  notes: string | null;
+  next_action: string | null;
+  next_follow_up_date: string | null;
+  next_follow_up_id: string | null;
+  project_status_id: string | null;
+};
+
+type CompletionForm = {
+  completionResult: string;
+  contactMethod: string;
+  completionNotes: string;
+  nextRequired: boolean;
+  nextAction: string;
+  nextFollowUpDate: string;
+  projectStatusId: string;
 };
 
 type ProjectForm = {
@@ -279,6 +312,36 @@ const emptyFollowUp: FollowUpForm = {
   followUpDate: "",
   notes: "",
 };
+
+const emptyCompletionForm: CompletionForm = {
+  completionResult: "",
+  contactMethod: "",
+  completionNotes: "",
+  nextRequired: false,
+  nextAction: "",
+  nextFollowUpDate: "",
+  projectStatusId: "",
+};
+
+const FOLLOW_UP_RESULTS = [
+  "No Answer",
+  "Customer Contacted",
+  "Quotation Requested",
+  "Quotation Sent",
+  "Technical Clarification",
+  "Samples Requested",
+  "Meeting Scheduled",
+  "Awaiting Customer Decision",
+  "Follow Up Again",
+  "Tender Submitted",
+  "Awarded / Won",
+  "Purchase Order Received",
+  "Lost",
+  "Project On Hold",
+  "Other",
+];
+
+const CONTACT_METHODS = ["Call", "WhatsApp", "Email", "Meeting", "Site Visit", "Other"];
 
 const AUTOMATIC_FOLLOW_UP_DAYS: Record<string, number> = {
   active: 7,
@@ -424,6 +487,8 @@ const [projectDateTo, setProjectDateTo] = useState("");
   const [statuses, setStatuses] = useState<ProjectStatus[]>(DEFAULT_STATUSES);
   const [followUps, setFollowUps] =
 useState<FollowUp[]>([]);
+  const [followUpActivities, setFollowUpActivities] =
+    useState<FollowUpActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingCustomer, setSavingCustomer] = useState(false);
@@ -443,6 +508,13 @@ useState<FollowUp[]>([]);
   >("customer");
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [showReopenModal, setShowReopenModal] = useState(false);
+  const [actionFollowUp, setActionFollowUp] = useState<FollowUp | null>(null);
+  const [completionForm, setCompletionForm] =
+    useState<CompletionForm>(emptyCompletionForm);
+  const [reopenReason, setReopenReason] = useState("");
+  const [savingCompletion, setSavingCompletion] = useState(false);
 
   const [editingProjectId, setEditingProjectId] =
     useState<string | null>(null);
@@ -492,6 +564,7 @@ const {
       teamMembersResult,
       statusesResult,
       followUpsResult,
+      followUpActivitiesResult,
     ] = await Promise.all([
       supabase
         .from("projects")
@@ -530,9 +603,14 @@ const {
       supabase
         .from("follow_ups")
         .select(
-          "id,project_id,assigned_to,follow_up_date,notes,completed,completed_at"
+          "id,project_id,assigned_to,follow_up_date,notes,completed,completed_at,completion_result,contact_method,completion_notes,completed_by,next_action,next_follow_up_id,reopened_at,reopened_by"
         )
         .order("follow_up_date", { ascending: true }),
+
+      supabase
+        .from("follow_up_activities")
+        .select("id,follow_up_id,action,performed_by,performed_at,completion_result,contact_method,notes,next_action,next_follow_up_date,next_follow_up_id,project_status_id")
+        .order("performed_at", { ascending: false }),
     ]);
 
     let hasError = false;
@@ -599,6 +677,16 @@ setStatuses(databaseStatuses);
       hasError = true;
     } else {
       setFollowUps((followUpsResult.data || []) as FollowUp[]);
+    }
+
+    if (followUpActivitiesResult.error) {
+      console.error(followUpActivitiesResult.error);
+      setError("Follow-up history: " + followUpActivitiesResult.error.message);
+      hasError = true;
+    } else {
+      setFollowUpActivities(
+        (followUpActivitiesResult.data || []) as FollowUpActivity[]
+      );
     }
 
     if (!hasError && clearExistingError) {
@@ -1471,29 +1559,105 @@ if (result.error) {
     await loadData();
   }
 
-  async function toggleFollowUp(
-    followUp: FollowUp
-  ) {
+  function openFollowUpAction(followUp: FollowUp) {
+    setActionFollowUp(followUp);
     setError("");
 
-    const newCompleted = !followUp.completed;
-
-    const result = await supabase
-      .from("follow_ups")
-      .update({
-        completed: newCompleted,
-        completed_at: newCompleted
-          ? new Date().toISOString()
-          : null,
-      })
-      .eq("id", followUp.id);
-
-    if (result.error) {
-      console.error(result.error);
-      setError(result.error.message);
+    if (followUp.completed) {
+      setReopenReason("");
+      setShowReopenModal(true);
       return;
     }
 
+    setCompletionForm({ ...emptyCompletionForm });
+    setShowCompletionModal(true);
+  }
+
+  async function completeFollowUpProcedure(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+    if (!actionFollowUp) return;
+
+    if (!completionForm.completionResult) {
+      setError("Please select the follow-up result.");
+      return;
+    }
+    if (!completionForm.contactMethod) {
+      setError("Please select the contact method.");
+      return;
+    }
+    if (!completionForm.completionNotes.trim()) {
+      setError("Completion notes are required.");
+      return;
+    }
+    if (
+      completionForm.nextRequired &&
+      (!completionForm.nextAction.trim() || !completionForm.nextFollowUpDate)
+    ) {
+      setError("Enter the next action and next follow-up date.");
+      return;
+    }
+
+    setSavingCompletion(true);
+    setError("");
+    const result = await supabase.rpc("complete_follow_up", {
+      p_follow_up_id: actionFollowUp.id,
+      p_completion_result: completionForm.completionResult,
+      p_contact_method: completionForm.contactMethod,
+      p_completion_notes: completionForm.completionNotes.trim(),
+      p_next_required: completionForm.nextRequired,
+      p_next_action: completionForm.nextRequired
+        ? completionForm.nextAction.trim()
+        : null,
+      p_next_follow_up_date: completionForm.nextRequired
+        ? completionForm.nextFollowUpDate
+        : null,
+      p_project_status_id: completionForm.projectStatusId || null,
+    });
+
+    if (result.error) {
+      console.error("FOLLOW-UP COMPLETION ERROR:", result.error);
+      setError(result.error.message);
+      setSavingCompletion(false);
+      return;
+    }
+
+    setSavingCompletion(false);
+    setShowCompletionModal(false);
+    setActionFollowUp(null);
+    setCompletionForm({ ...emptyCompletionForm });
+    await loadData();
+  }
+
+  async function reopenFollowUpProcedure(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+    if (!actionFollowUp) return;
+    if (!reopenReason.trim()) {
+      setError("A reopen reason is required.");
+      return;
+    }
+
+    setSavingCompletion(true);
+    setError("");
+    const result = await supabase.rpc("reopen_follow_up", {
+      p_follow_up_id: actionFollowUp.id,
+      p_reason: reopenReason.trim(),
+    });
+
+    if (result.error) {
+      console.error("FOLLOW-UP REOPEN ERROR:", result.error);
+      setError(result.error.message);
+      setSavingCompletion(false);
+      return;
+    }
+
+    setSavingCompletion(false);
+    setShowReopenModal(false);
+    setActionFollowUp(null);
+    setReopenReason("");
     await loadData();
   }
 
@@ -3217,8 +3381,25 @@ if (!session) {
                               </td>
 
                               <td className="px-6 py-4 text-gray-600">
-                                {followUp.notes ||
-                                  "-"}
+                                <p>{followUp.notes || "-"}</p>
+                                {followUp.completed && (
+                                  <div className="mt-2 space-y-1 text-xs">
+                                    <p className="font-medium text-green-700">
+                                      Result: {followUp.completion_result || "Historical import"}
+                                    </p>
+                                    {followUp.contact_method && (
+                                      <p>Method: {followUp.contact_method}</p>
+                                    )}
+                                    {followUp.completion_notes && (
+                                      <p>{followUp.completion_notes}</p>
+                                    )}
+                                    <p>
+                                      Completed by: {followUp.completed_by
+                                        ? getTeamMemberName(followUp.completed_by)
+                                        : "Historical import"}
+                                    </p>
+                                  </div>
+                                )}
                               </td>
 
                               <td className="px-6 py-4">
@@ -3248,7 +3429,7 @@ if (!session) {
                                   <button
                                     type="button"
                                     onClick={() =>
-                                      toggleFollowUp(
+                                      openFollowUpAction(
                                         followUp
                                       )
                                     }
@@ -4004,6 +4185,185 @@ if (!session) {
         </Modal>
       )}
 
+      {showCompletionModal && actionFollowUp && (
+        <Modal
+          title="Complete Follow-up"
+          onClose={() => {
+            if (!savingCompletion) {
+              setShowCompletionModal(false);
+              setActionFollowUp(null);
+            }
+          }}
+          maxWidth="max-w-3xl"
+        >
+          <form onSubmit={completeFollowUpProcedure} className="space-y-5">
+            <div className="rounded-lg bg-gray-50 p-4">
+              <p className="font-semibold">
+                {getFollowUpProject(actionFollowUp)?.project_name || "Project"}
+              </p>
+              <p className="mt-1 text-sm text-gray-600">
+                Follow-up date: {formatDate(actionFollowUp.follow_up_date)}
+              </p>
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2">
+              <SelectInput
+                label="Follow-up Result"
+                value={completionForm.completionResult}
+                onChange={(value) =>
+                  setCompletionForm({
+                    ...completionForm,
+                    completionResult: value,
+                    nextRequired:
+                      value === "Follow Up Again"
+                        ? true
+                        : completionForm.nextRequired,
+                  })
+                }
+                options={FOLLOW_UP_RESULTS.map((value) => ({ value, label: value }))}
+                placeholder="Select result"
+              />
+              <SelectInput
+                label="Contact Method"
+                value={completionForm.contactMethod}
+                onChange={(value) =>
+                  setCompletionForm({ ...completionForm, contactMethod: value })
+                }
+                options={CONTACT_METHODS.map((value) => ({ value, label: value }))}
+                placeholder="Select method"
+              />
+            </div>
+
+            <TextArea
+              label="Completion Notes (required)"
+              value={completionForm.completionNotes}
+              onChange={(value) =>
+                setCompletionForm({ ...completionForm, completionNotes: value })
+              }
+              placeholder="What happened and what did the customer say?"
+            />
+
+            <label className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <input
+                type="checkbox"
+                checked={completionForm.nextRequired}
+                onChange={(event) =>
+                  setCompletionForm({
+                    ...completionForm,
+                    nextRequired: event.target.checked,
+                    nextAction: event.target.checked ? completionForm.nextAction : "",
+                    nextFollowUpDate: event.target.checked
+                      ? completionForm.nextFollowUpDate
+                      : "",
+                  })
+                }
+                className="h-5 w-5"
+              />
+              <span>
+                <span className="block font-semibold">Another follow-up is required</span>
+                <span className="text-sm text-gray-600">
+                  The CRM will create it automatically.
+                </span>
+              </span>
+            </label>
+
+            {completionForm.nextRequired && (
+              <div className="grid gap-5 md:grid-cols-2">
+                <TextInput
+                  label="Next Action"
+                  value={completionForm.nextAction}
+                  onChange={(value) =>
+                    setCompletionForm({ ...completionForm, nextAction: value })
+                  }
+                  placeholder="Call again, send quotation..."
+                  required
+                />
+                <DateInput
+                  label="Next Follow-up Date"
+                  value={completionForm.nextFollowUpDate}
+                  onChange={(value) =>
+                    setCompletionForm({ ...completionForm, nextFollowUpDate: value })
+                  }
+                />
+              </div>
+            )}
+
+            <SelectInput
+              label="Update Project Status (optional)"
+              value={completionForm.projectStatusId}
+              onChange={(value) =>
+                setCompletionForm({ ...completionForm, projectStatusId: value })
+              }
+              options={statuses.map((status) => ({
+                value: status.id,
+                label: status.name,
+              }))}
+              placeholder="Keep current project status"
+            />
+
+            <div className="flex justify-end gap-3 border-t pt-5">
+              <button
+                type="button"
+                onClick={() => setShowCompletionModal(false)}
+                disabled={savingCompletion}
+                className="rounded-lg border px-5 py-2 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingCompletion}
+                className="rounded-lg bg-green-600 px-5 py-2 font-medium text-white disabled:opacity-50"
+              >
+                {savingCompletion ? "Saving..." : "Complete Follow-up"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {showReopenModal && actionFollowUp && (
+        <Modal
+          title="Reopen Follow-up"
+          onClose={() => {
+            if (!savingCompletion) {
+              setShowReopenModal(false);
+              setActionFollowUp(null);
+            }
+          }}
+          maxWidth="max-w-xl"
+        >
+          <form onSubmit={reopenFollowUpProcedure} className="space-y-5">
+            <p className="text-gray-600">
+              The previous completion remains in the activity history.
+            </p>
+            <TextArea
+              label="Reason for Reopening (required)"
+              value={reopenReason}
+              onChange={setReopenReason}
+              placeholder="Explain why this follow-up needs to be reopened."
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowReopenModal(false)}
+                disabled={savingCompletion}
+                className="rounded-lg border px-5 py-2 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingCompletion}
+                className="rounded-lg bg-orange-500 px-5 py-2 font-medium text-white disabled:opacity-50"
+              >
+                {savingCompletion ? "Saving..." : "Reopen Follow-up"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {showNotificationSettings && (
         <Modal
           title="Notification Settings"
@@ -4464,7 +4824,9 @@ if (!session) {
               <ProjectFollowUps
                 projectId={selectedProject.id}
                 followUps={followUps}
-                onToggle={toggleFollowUp}
+                activities={followUpActivities}
+                getTeamMemberName={getTeamMemberName}
+                onToggle={openFollowUpAction}
                 readOnly
               />
             </div>
@@ -4762,11 +5124,15 @@ function FollowUpQuickDates({
 function ProjectFollowUps({
   projectId,
   followUps,
+  activities,
+  getTeamMemberName,
   onToggle,
   readOnly = false,
 }: {
   projectId: string;
   followUps: FollowUp[];
+  activities: FollowUpActivity[];
+  getTeamMemberName: (id: string | null) => string;
   onToggle: (followUp: FollowUp) => void;
   readOnly?: boolean;
 }) {
@@ -4799,7 +5165,12 @@ function ProjectFollowUps({
   return (
     <div className="overflow-hidden rounded-xl border">
       {projectFollowUps.map(
-        (followUp) => (
+        (followUp) => {
+          const followUpActivities = activities.filter(
+            (activity) => activity.follow_up_id === followUp.id
+          );
+
+          return (
           <div
             key={followUp.id}
             className="flex flex-col gap-4 border-b p-5 last:border-b-0 md:flex-row md:items-center md:justify-between"
@@ -4832,6 +5203,59 @@ function ProjectFollowUps({
                 {followUp.notes ||
                   "No notes"}
               </p>
+
+              {followUp.completed && (
+                <div className="mt-3 rounded-lg bg-green-50 p-3 text-sm text-green-900">
+                  <p className="font-semibold">
+                    {followUp.completion_result || "Historical import"}
+                  </p>
+                  {followUp.contact_method && (
+                    <p className="mt-1">Contact: {followUp.contact_method}</p>
+                  )}
+                  {followUp.completion_notes && (
+                    <p className="mt-1 whitespace-pre-wrap">{followUp.completion_notes}</p>
+                  )}
+                  <p className="mt-1 text-xs text-green-700">
+                    Completed by {followUp.completed_by
+                      ? getTeamMemberName(followUp.completed_by)
+                      : "Historical import"}
+                    {followUp.completed_at
+                      ? ` on ${new Date(followUp.completed_at).toLocaleString("en-GB")}`
+                      : ""}
+                  </p>
+                  {followUp.next_action && (
+                    <p className="mt-2 font-medium">Next action: {followUp.next_action}</p>
+                  )}
+                </div>
+              )}
+
+              {followUpActivities.length > 0 && (
+                <details className="mt-3 text-sm">
+                  <summary className="cursor-pointer font-medium text-blue-700">
+                    Activity history ({followUpActivities.length})
+                  </summary>
+                  <div className="mt-2 space-y-2 border-l-2 border-blue-100 pl-3">
+                    {followUpActivities.map((activity) => (
+                      <div key={activity.id}>
+                        <p className="font-medium capitalize">{activity.action}</p>
+                        <p className="text-xs text-gray-500">
+                          {activity.performed_by
+                            ? getTeamMemberName(activity.performed_by)
+                            : "Historical import"}{" "}
+                          · {new Date(activity.performed_at).toLocaleString("en-GB")}
+                        </p>
+                        {activity.completion_result && (
+                          <p>Result: {activity.completion_result}</p>
+                        )}
+                        {activity.notes && <p>{activity.notes}</p>}
+                        {activity.next_follow_up_date && (
+                          <p>Next follow-up: {formatDate(activity.next_follow_up_date)}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
             </div>
 
             {!readOnly && (
@@ -4846,7 +5270,8 @@ function ProjectFollowUps({
               </button>
             )}
           </div>
-        )
+          );
+        }
       )}
     </div>
   );
