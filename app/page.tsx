@@ -181,6 +181,24 @@ type FollowUpActivity = {
   project_status_id: string | null;
 };
 
+type ProjectActivity = {
+  id: string;
+  project_id: string;
+  action: string;
+  performed_by: string | null;
+  performed_at: string;
+  changed_fields: Record<
+    string,
+    { old: unknown; new: unknown }
+  >;
+};
+
+type ProjectActivityRead = {
+  activity_id: string;
+  team_member_id: string;
+  read_at: string;
+};
+
 type CompletionForm = {
   completionResult: string;
   contactMethod: string;
@@ -489,6 +507,10 @@ const [projectDateTo, setProjectDateTo] = useState("");
 useState<FollowUp[]>([]);
   const [followUpActivities, setFollowUpActivities] =
     useState<FollowUpActivity[]>([]);
+  const [projectActivities, setProjectActivities] =
+    useState<ProjectActivity[]>([]);
+  const [projectActivityReads, setProjectActivityReads] =
+    useState<ProjectActivityRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingCustomer, setSavingCustomer] = useState(false);
@@ -510,6 +532,7 @@ useState<FollowUp[]>([]);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [showReopenModal, setShowReopenModal] = useState(false);
+  const [showProjectActivityModal, setShowProjectActivityModal] = useState(false);
   const [actionFollowUp, setActionFollowUp] = useState<FollowUp | null>(null);
   const [completionForm, setCompletionForm] =
     useState<CompletionForm>(emptyCompletionForm);
@@ -565,6 +588,8 @@ const {
       statusesResult,
       followUpsResult,
       followUpActivitiesResult,
+      projectActivitiesResult,
+      projectActivityReadsResult,
     ] = await Promise.all([
       supabase
         .from("projects")
@@ -611,6 +636,16 @@ const {
         .from("follow_up_activities")
         .select("id,follow_up_id,action,performed_by,performed_at,completion_result,contact_method,notes,next_action,next_follow_up_date,next_follow_up_id,project_status_id")
         .order("performed_at", { ascending: false }),
+
+      supabase
+        .from("project_activities")
+        .select("id,project_id,action,performed_by,performed_at,changed_fields")
+        .order("performed_at", { ascending: false })
+        .limit(200),
+
+      supabase
+        .from("project_activity_reads")
+        .select("activity_id,team_member_id,read_at"),
     ]);
 
     let hasError = false;
@@ -686,6 +721,18 @@ setStatuses(databaseStatuses);
     } else {
       setFollowUpActivities(
         (followUpActivitiesResult.data || []) as FollowUpActivity[]
+      );
+    }
+
+    if (!projectActivitiesResult.error) {
+      setProjectActivities(
+        (projectActivitiesResult.data || []) as ProjectActivity[]
+      );
+    }
+
+    if (!projectActivityReadsResult.error) {
+      setProjectActivityReads(
+        (projectActivityReadsResult.data || []) as ProjectActivityRead[]
       );
     }
 
@@ -889,6 +936,7 @@ async function handleLogout() {
     setProjectForm({
       ...emptyProject,
       projectDate: getTodayString(),
+      assignedTo: isAdmin ? "" : currentTeamMember?.id || "",
     });
 
     setError("");
@@ -996,7 +1044,9 @@ async function handleLogout() {
     setFollowUpForm({
       ...emptyFollowUp,
       projectId: project?.id || "",
-      assignedTo: project?.assigned_to || "",
+      assignedTo: isAdmin
+        ? project?.assigned_to || ""
+        : currentTeamMember?.id || "",
       followUpDate: suggestedDate,
     });
 
@@ -1198,7 +1248,9 @@ if (
       estimated_cost_jd: projectForm.estimatedCostJd
         ? Number(projectForm.estimatedCostJd)
         : null,
-      assigned_to: projectForm.assignedTo || null,
+      assigned_to: isAdmin
+        ? projectForm.assignedTo || null
+        : currentTeamMember?.id || null,
       prepared_by:
         projectForm.preparedBy === "__other__"
           ? null
@@ -1519,7 +1571,9 @@ await loadData(false);
       .from("follow_ups")
       .insert({
         project_id: followUpForm.projectId,
-        assigned_to: followUpForm.assignedTo || null,
+        assigned_to: isAdmin
+          ? followUpForm.assignedTo || null
+          : currentTeamMember?.id || null,
         follow_up_date: followUpForm.followUpDate,
         notes: followUpForm.notes.trim() || null,
         completed: false,
@@ -1778,6 +1832,16 @@ if (result.error) {
     currentTeamMember?.role.trim().toLowerCase() === "admin";
 
   useEffect(() => {
+    if (
+      currentTeamMember &&
+      !isAdmin &&
+      (page === "customers" || page === "team")
+    ) {
+      setPage("dashboard");
+    }
+  }, [currentTeamMember, isAdmin, page]);
+
+  useEffect(() => {
     if (!session?.user?.id || !currentTeamMember) return;
 
     const key = `crm-follow-up-preferences-${session.user.id}`;
@@ -1808,6 +1872,110 @@ if (result.error) {
     setNotificationPreferences(next);
     setFollowUpAlertsEnabled(next.enabled);
   }, [session?.user?.id, currentTeamMember, isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    const channel = supabase
+      .channel(`project-activity-admin-${session?.user?.id || "unknown"}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "project_activities",
+        },
+        (payload) => {
+          const activity = payload.new as ProjectActivity;
+          setProjectActivities((current) =>
+            current.some((item) => item.id === activity.id)
+              ? current
+              : [activity, ...current].slice(0, 200)
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isAdmin, session?.user?.id]);
+
+  const salespersonProjectActivities = useMemo(
+    () =>
+      projectActivities.filter((activity) => {
+        if (!activity.performed_by) return false;
+        const actor = teamMembers.find(
+          (member) => member.id === activity.performed_by
+        );
+        return actor?.role.trim().toLowerCase() !== "admin";
+      }),
+    [projectActivities, teamMembers]
+  );
+
+  const readProjectActivityIds = useMemo(
+    () => new Set(projectActivityReads.map((item) => item.activity_id)),
+    [projectActivityReads]
+  );
+
+  const unreadProjectActivities = salespersonProjectActivities.filter(
+    (activity) => !readProjectActivityIds.has(activity.id)
+  );
+
+  async function openProjectActivityNotifications() {
+    setShowProjectActivityModal(true);
+    if (!currentTeamMember || unreadProjectActivities.length === 0) return;
+
+    const rows = unreadProjectActivities.map((activity) => ({
+      activity_id: activity.id,
+      team_member_id: currentTeamMember.id,
+    }));
+    const result = await supabase.from("project_activity_reads").insert(rows);
+    if (!result.error) {
+      setProjectActivityReads((current) => [
+        ...current,
+        ...rows.map((row) => ({ ...row, read_at: new Date().toISOString() })),
+      ]);
+    }
+  }
+
+  function getProjectActivityFieldLabel(field: string) {
+    const labels: Record<string, string> = {
+      sn: "SN",
+      project_name: "Project Name",
+      customer_id: "Customer",
+      contracting_company_id: "Contracting Company",
+      contractor_id: "Contractor",
+      consultant_id: "Consultant",
+      contractor_name: "Contractor Person",
+      consultant_name: "Consultant Person",
+      mobile_no: "Mobile",
+      project_date: "Project Date",
+      status_id: "Status",
+      estimated_cost_jd: "Estimated Cost",
+      assigned_to: "Assigned To",
+      prepared_by: "Prepared By",
+      prepared_by_other: "Prepared By (Other)",
+      notes: "Notes",
+      rejection_reason: "Lost Reason",
+      specification_mismatch: "Specification Mismatch",
+      hidden: "Hidden",
+    };
+    return labels[field] || field.replaceAll("_", " ");
+  }
+
+  function formatProjectActivityValue(field: string, value: unknown) {
+    if (value === null || value === undefined || value === "") return "—";
+    if (field === "status_id") return getStatusName(String(value));
+    if (field === "assigned_to" || field === "prepared_by") {
+      return getTeamMemberName(String(value));
+    }
+    if (["customer_id", "contracting_company_id", "contractor_id", "consultant_id"].includes(field)) {
+      return getCompanyName(String(value));
+    }
+    if (field === "hidden") return value ? "Yes" : "No";
+    return String(value);
+  }
 
   const accessibleProjects = useMemo(() => {
     if (isAdmin) {
@@ -2384,19 +2552,23 @@ if (!session) {
       Projects
     </NavButton>
 
-    <NavButton
-      active={page === "customers"}
-      onClick={() => setPage("customers")}
-    >
-      Customers
-    </NavButton>
+    {isAdmin && (
+      <>
+        <NavButton
+          active={page === "customers"}
+          onClick={() => setPage("customers")}
+        >
+          Customers
+        </NavButton>
 
-    <NavButton
-      active={page === "team"}
-      onClick={() => setPage("team")}
-    >
-      Team Members
-    </NavButton>
+        <NavButton
+          active={page === "team"}
+          onClick={() => setPage("team")}
+        >
+          Team Members
+        </NavButton>
+      </>
+    )}
 
     <NavButton
       active={page === "followups"}
@@ -2408,6 +2580,23 @@ if (!session) {
       Follow-ups
     </NavButton>
   </nav>
+
+  {isAdmin && (
+    <div className="px-4">
+      <button
+        type="button"
+        onClick={openProjectActivityNotifications}
+        className="flex w-full items-center justify-between rounded-lg border border-gray-700 px-4 py-3 text-left text-sm text-gray-200 hover:bg-gray-800"
+      >
+        <span>Project Changes</span>
+        {unreadProjectActivities.length > 0 && (
+          <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+            {unreadProjectActivities.length}
+          </span>
+        )}
+      </button>
+    </div>
+  )}
 
   {/* LOGOUT BUTTON */}
   <div className="absolute bottom-6 left-4 right-4">
@@ -2435,6 +2624,22 @@ if (!session) {
               </button>
             </div>
           </div>
+        )}
+
+        {isAdmin && unreadProjectActivities.length > 0 && (
+          <button
+            type="button"
+            onClick={openProjectActivityNotifications}
+            className="mb-6 flex w-full items-center justify-between rounded-xl border border-blue-300 bg-blue-50 px-5 py-4 text-left text-blue-900 shadow-sm hover:bg-blue-100"
+          >
+            <span>
+              <span className="block font-semibold">New Project Changes</span>
+              <span className="text-sm">Review project updates made by salespeople.</span>
+            </span>
+            <span className="rounded-full bg-blue-700 px-3 py-1 text-lg font-bold text-white">
+              {unreadProjectActivities.length}
+            </span>
+          </button>
         )}
 
         {!loading &&
@@ -2485,11 +2690,13 @@ if (!session) {
             <div className="mb-8 flex items-center justify-between">
               <div>
                 <h2 className="text-3xl font-bold">
-                  Dashboard
+                  {isAdmin ? "Dashboard" : "My Work"}
                 </h2>
 
                 <p className="mt-1 text-gray-500">
-                  Overview of your sales CRM
+                  {isAdmin
+                    ? "Overview of your sales CRM"
+                    : "Your assigned projects and follow-ups"}
                 </p>
               </div>
 
@@ -2509,6 +2716,15 @@ if (!session) {
                 >
                   {followUpAlertsEnabled ? "Alert Settings" : "Enable Alerts"}
                 </button>
+                {!isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => openNewFollowUp()}
+                    className="rounded-lg bg-orange-500 px-5 py-3 font-medium text-white hover:bg-orange-600"
+                  >
+                    + Add Follow-Up
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={openNewProject}
@@ -2521,7 +2737,7 @@ if (!session) {
 
             <div className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-4">
               <DashboardCard
-                title="Active Projects"
+                title={isAdmin ? "Active Projects" : "My Active Projects"}
                 value={
                   loading
                     ? "..."
@@ -2529,14 +2745,12 @@ if (!session) {
                 }
               />
 
-              <DashboardCard
-                title="Customers"
-                value={
-                  loading
-                    ? "..."
-                    : String(companies.length)
-                }
-              />
+              {isAdmin && (
+                <DashboardCard
+                  title="Customers"
+                  value={loading ? "..." : String(companies.length)}
+                />
+              )}
 
 <DashboardCard
   title="Open Follow-ups"
@@ -2582,16 +2796,19 @@ if (!session) {
     setPage("followups");
   }}
 />
-              <FollowUpSummaryCard
-                title="Hidden Projects"
-                value={hiddenProjectsCount}
-                onClick={() => {
-                  setProjectView("hidden");
-                  setPage("projects");
-                }}
-              />
+              {isAdmin && (
+                <FollowUpSummaryCard
+                  title="Hidden Projects"
+                  value={hiddenProjectsCount}
+                  onClick={() => {
+                    setProjectView("hidden");
+                    setPage("projects");
+                  }}
+                />
+              )}
             </div>
 
+            {isAdmin && (
             <div className="mb-8 rounded-xl bg-white p-6 shadow-sm">
               <div className="mb-4">
                 <h3 className="text-xl font-semibold">Projects by Status</h3>
@@ -2616,7 +2833,9 @@ if (!session) {
                 ))}
               </div>
             </div>
+            )}
 
+            {isAdmin && (
             <div className="rounded-xl bg-white shadow-sm">
               <div className="flex items-center justify-between border-b p-6">
                 <h3 className="text-xl font-semibold">
@@ -2658,8 +2877,10 @@ if (!session) {
                 onCopy={openCopyProject}
                 onEdit={openEditProject}
                 onDetails={openProjectDetails}
+                isAdmin={isAdmin}
               />
             </div>
+            )}
           </>
         )}
 
@@ -2672,7 +2893,9 @@ if (!session) {
                 </h2>
 
                 <p className="mt-1 text-gray-500">
-                  Add, view, edit, hide and manage projects
+                  {isAdmin
+                    ? "Add, view, edit, hide and manage projects"
+                    : "Add and update your assigned projects"}
                 </p>
               </div>
 
@@ -2713,7 +2936,7 @@ if (!session) {
                 </div>
               )}
 
-              {projectStatusFilter !== "all" && (
+              {isAdmin && projectStatusFilter !== "all" && (
                 <div className="mb-5 rounded-xl border border-green-200 bg-green-50 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="font-semibold text-green-900">
@@ -2876,14 +3099,14 @@ if (!session) {
                     Active ({activeProjectsCount})
                   </ViewButton>
 
-                  <ViewButton
-                    active={projectView === "hidden"}
-                    onClick={() =>
-                      setProjectView("hidden")
-                    }
-                  >
-                    Hidden ({hiddenProjectsCount})
-                  </ViewButton>
+                  {isAdmin && (
+                    <ViewButton
+                      active={projectView === "hidden"}
+                      onClick={() => setProjectView("hidden")}
+                    >
+                      Hidden ({hiddenProjectsCount})
+                    </ViewButton>
+                  )}
 
                   <ViewButton
                     active={projectView === "all"}
@@ -2958,7 +3181,7 @@ if (!session) {
                   : "s"}
               </p>
 
-              {projectView === "hidden" && (
+              {isAdmin && projectView === "hidden" && (
                 <p className="text-sm font-medium text-orange-600">
                   Hidden projects are still stored safely.
                 </p>
@@ -2976,12 +3199,13 @@ if (!session) {
                 onEdit={openEditProject}
                 onDetails={openProjectDetails}
                 showLostReason={projectStatusFilter === "lost"}
+                isAdmin={isAdmin}
               />
             </div>
           </>
         )}
 
-        {page === "customers" && (
+        {isAdmin && page === "customers" && (
           <>
             <div className="mb-8 flex items-center justify-between">
               <div>
@@ -3206,7 +3430,7 @@ if (!session) {
           </>
         )}
 
-        {page === "team" && (
+        {isAdmin && page === "team" && (
           <TeamMembersSection
             teamMembers={teamMembers}
             projects={accessibleProjects}
@@ -3454,6 +3678,70 @@ if (!session) {
         )}
       </main>
 
+      {showProjectActivityModal && isAdmin && (
+        <Modal
+          title="Salesperson Project Changes"
+          onClose={() => setShowProjectActivityModal(false)}
+          maxWidth="max-w-4xl"
+        >
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-gray-500">
+                Project additions and edits made by salespeople. Opening this list marks the current items as read.
+              </p>
+              <button
+                type="button"
+                onClick={() => loadData(false)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+              >
+                Refresh
+              </button>
+            </div>
+
+            {salespersonProjectActivities.length === 0 ? (
+              <div className="rounded-xl bg-gray-50 p-8 text-center text-gray-500">
+                No salesperson project changes yet.
+              </div>
+            ) : (
+              salespersonProjectActivities.slice(0, 100).map((activity) => {
+                const actor = teamMembers.find((member) => member.id === activity.performed_by);
+                const project = projects.find((item) => item.id === activity.project_id);
+                return (
+                  <div key={activity.id} className="rounded-xl border border-gray-200 p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">
+                          {actor?.full_name || "Salesperson"} {activity.action === "insert" ? "added" : "edited"} a project
+                        </p>
+                        <p className="mt-1 text-sm text-gray-600">
+                          {project?.sn ? `${project.sn} — ` : ""}{project?.project_name || "Project"}
+                        </p>
+                      </div>
+                      <time className="text-sm text-gray-500">
+                        {new Date(activity.performed_at).toLocaleString()}
+                      </time>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      {Object.entries(activity.changed_fields || {}).map(([field, change]) => (
+                        <div key={field} className="grid gap-1 rounded-lg bg-gray-50 px-4 py-3 text-sm md:grid-cols-[180px_1fr]">
+                          <span className="font-medium text-gray-700">{getProjectActivityFieldLabel(field)}</span>
+                          <span className="text-gray-600">
+                            {activity.action === "insert"
+                              ? formatProjectActivityValue(field, change.new)
+                              : `${formatProjectActivityValue(field, change.old)} → ${formatProjectActivityValue(field, change.new)}`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </Modal>
+      )}
+
       {showProjectModal && (
         <Modal
           title={
@@ -3699,23 +3987,24 @@ if (!session) {
                 placeholder="0.00"
               />
 
-              <SelectInput
-                label="Assigned To"
-                value={projectForm.assignedTo}
-                onChange={(value) =>
-                  setProjectForm({
-                    ...projectForm,
-                    assignedTo: value,
-                  })
-                }
-                options={teamMembers
-                  .filter((member) => member.active)
-                  .map((member) => ({
-                    value: member.id,
-                    label: member.full_name,
-                  }))}
-                placeholder="Select salesperson"
-              />
+              {isAdmin ? (
+                <SelectInput
+                  label="Assigned To"
+                  value={projectForm.assignedTo}
+                  onChange={(value) =>
+                    setProjectForm({ ...projectForm, assignedTo: value })
+                  }
+                  options={teamMembers
+                    .filter((member) => member.active)
+                    .map((member) => ({
+                      value: member.id,
+                      label: member.full_name,
+                    }))}
+                  placeholder="Select salesperson"
+                />
+              ) : (
+                <ReadOnlyAssignment name={currentTeamMember?.full_name || "Your account"} />
+              )}
 
               <SelectInput
                 label="Prepared By"
@@ -3868,7 +4157,7 @@ if (!session) {
 
             <div className="flex flex-col gap-3 border-t pt-5 md:flex-row md:items-center md:justify-between">
               <div className="flex flex-wrap gap-3">
-                {editingProjectId &&
+                {isAdmin && editingProjectId &&
                   (() => {
                     const editingProject = projects.find(
                       (project) => project.id === editingProjectId
@@ -4523,7 +4812,7 @@ if (!session) {
                   setSelectedProject(project);
                 }
               }}
-              options={projects
+              options={accessibleProjects
                 .filter(
                   (project) => !project.hidden
                 )
@@ -4537,23 +4826,24 @@ if (!session) {
               placeholder="Select project"
             />
 
-            <SelectInput
-              label="Follow-Up Assigned To"
-              value={followUpForm.assignedTo}
-              onChange={(value) =>
-                setFollowUpForm({
-                  ...followUpForm,
-                  assignedTo: value,
-                })
-              }
-              options={teamMembers
-                .filter((member) => member.active)
-                .map((member) => ({
-                  value: member.id,
-                  label: member.full_name,
-                }))}
-              placeholder="Select salesperson"
-            />
+            {isAdmin ? (
+              <SelectInput
+                label="Follow-Up Assigned To"
+                value={followUpForm.assignedTo}
+                onChange={(value) =>
+                  setFollowUpForm({ ...followUpForm, assignedTo: value })
+                }
+                options={teamMembers
+                  .filter((member) => member.active)
+                  .map((member) => ({
+                    value: member.id,
+                    label: member.full_name,
+                  }))}
+                placeholder="Select salesperson"
+              />
+            ) : (
+              <ReadOnlyAssignment name={currentTeamMember?.full_name || "Your account"} />
+            )}
 
             {followUpForm.projectId && (
               <FollowUpQuickDates
@@ -5287,6 +5577,7 @@ function ProjectTable({
   onEdit,
   onDetails,
   showLostReason = false,
+  isAdmin,
 }: {
   projects: Project[];
   loading: boolean;
@@ -5303,6 +5594,7 @@ function ProjectTable({
   onEdit: (project: Project) => void;
   onDetails: (project: Project) => void;
   showLostReason?: boolean;
+  isAdmin: boolean;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -5469,15 +5761,15 @@ function ProjectTable({
 
                 <td className="px-6 py-4 text-right">
                   <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onCopy(project)
-                      }
-                      className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
-                    >
-                      Copy
-                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => onCopy(project)}
+                        className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+                      >
+                        Copy
+                      </button>
+                    )}
 
                     <button
                       type="button"
@@ -5583,6 +5875,18 @@ function DetailText({
 
       <div className="whitespace-pre-wrap rounded-lg bg-gray-50 p-4">
         {value || "-"}
+      </div>
+    </div>
+  );
+}
+
+function ReadOnlyAssignment({ name }: { name: string }) {
+  return (
+    <div>
+      <label className="mb-2 block text-sm font-medium">Assigned To</label>
+      <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-gray-700">
+        {name}
+        <span className="ml-2 text-xs text-gray-500">(automatic)</span>
       </div>
     </div>
   );
