@@ -197,6 +197,26 @@ type FollowUpForm = {
   notes: string;
 };
 
+type NotificationPreferences = {
+  enabled: boolean;
+  notifyToday: boolean;
+  notifyOverdue: boolean;
+  sound: boolean;
+  desktop: boolean;
+  scope: "mine" | "all" | "member";
+  memberId: string;
+};
+
+const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  enabled: false,
+  notifyToday: true,
+  notifyOverdue: true,
+  sound: true,
+  desktop: true,
+  scope: "mine",
+  memberId: "",
+};
+
 const emptyProject: ProjectForm = {
   sn: "",
   projectName: "",
@@ -350,6 +370,9 @@ const [password, setPassword] = useState("");
 const [loginError, setLoginError] = useState("");
 const [loggingIn, setLoggingIn] = useState(false);
 const [followUpAlertsEnabled, setFollowUpAlertsEnabled] = useState(false);
+const [showNotificationSettings, setShowNotificationSettings] = useState(false);
+const [notificationPreferences, setNotificationPreferences] =
+  useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
 useEffect(() => {
   let mounted = true;
 
@@ -378,11 +401,6 @@ useEffect(() => {
   };
 }, []); 
 
-useEffect(() => {
-  setFollowUpAlertsEnabled(
-    window.localStorage.getItem("crm-follow-up-alerts") === "enabled"
-  );
-}, []);
 const [page, setPage] = useState<Page>("dashboard");
 
 const [followUpFilter, setFollowUpFilter] = useState<
@@ -673,25 +691,49 @@ async function handleLogout() {
   }
 
   async function enableFollowUpAlerts() {
-    if (!("Notification" in window)) {
-      setError("This browser does not support desktop notifications.");
-      return;
+    if (notificationPreferences.desktop) {
+      if (!("Notification" in window)) {
+        setError("This browser does not support desktop notifications. Turn off Desktop Popup to use in-app alerts only.");
+        setShowNotificationSettings(true);
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setError("Desktop notifications were blocked. You can turn off Desktop Popup and keep in-app alerts.");
+        setShowNotificationSettings(true);
+        return;
+      }
     }
 
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      setError("Notifications were blocked. Please allow them in the browser site settings.");
-      return;
-    }
-
-    window.localStorage.setItem("crm-follow-up-alerts", "enabled");
+    saveNotificationPreferences({
+      ...notificationPreferences,
+      enabled: true,
+    });
     setFollowUpAlertsEnabled(true);
-    playFollowUpAlert("today");
+    if (notificationPreferences.sound) {
+      playFollowUpAlert("today");
+    }
+    setShowNotificationSettings(true);
   }
 
   function disableFollowUpAlerts() {
-    window.localStorage.removeItem("crm-follow-up-alerts");
+    saveNotificationPreferences({
+      ...notificationPreferences,
+      enabled: false,
+    });
     setFollowUpAlertsEnabled(false);
+  }
+
+  function saveNotificationPreferences(next: NotificationPreferences) {
+    setNotificationPreferences(next);
+    setFollowUpAlertsEnabled(next.enabled);
+    if (session?.user?.id) {
+      window.localStorage.setItem(
+        `crm-follow-up-preferences-${session.user.id}`,
+        JSON.stringify(next)
+      );
+    }
   }
 
   function openProjectsForStatus(statusGroup: string) {
@@ -1571,6 +1613,38 @@ if (result.error) {
   const isAdmin =
     currentTeamMember?.role.trim().toLowerCase() === "admin";
 
+  useEffect(() => {
+    if (!session?.user?.id || !currentTeamMember) return;
+
+    const key = `crm-follow-up-preferences-${session.user.id}`;
+    const saved = window.localStorage.getItem(key);
+    let next: NotificationPreferences = {
+      ...DEFAULT_NOTIFICATION_PREFERENCES,
+      scope: isAdmin ? "all" : "mine",
+    };
+
+    if (saved) {
+      try {
+        next = {
+          ...next,
+          ...(JSON.parse(saved) as Partial<NotificationPreferences>),
+          scope: isAdmin
+            ? (JSON.parse(saved) as Partial<NotificationPreferences>).scope || "all"
+            : "mine",
+        };
+      } catch {
+        window.localStorage.removeItem(key);
+      }
+    } else if (
+      window.localStorage.getItem("crm-follow-up-alerts") === "enabled"
+    ) {
+      next.enabled = true;
+    }
+
+    setNotificationPreferences(next);
+    setFollowUpAlertsEnabled(next.enabled);
+  }, [session?.user?.id, currentTeamMember, isAdmin]);
+
   const accessibleProjects = useMemo(() => {
     if (isAdmin) {
       return projects;
@@ -1896,13 +1970,56 @@ if (result.error) {
     (item) => item.follow_up_date === today
   );
 
+  const notificationFollowUps = accessibleFollowUps.filter((followUp) => {
+    if (!isAdmin || notificationPreferences.scope === "mine") {
+      if (!currentTeamMember) return false;
+      const project = getFollowUpProject(followUp);
+      return (
+        followUp.assigned_to || project?.assigned_to
+      ) === currentTeamMember.id;
+    }
+
+    if (notificationPreferences.scope === "member") {
+      if (!notificationPreferences.memberId) return false;
+      const project = getFollowUpProject(followUp);
+      return (
+        followUp.assigned_to || project?.assigned_to
+      ) === notificationPreferences.memberId;
+    }
+
+    return true;
+  });
+
+  const notificationOpenFollowUps = notificationFollowUps.filter(
+    (followUp) => !followUp.completed
+  );
+  const notificationOverdueFollowUps = notificationOpenFollowUps.filter(
+    (followUp) =>
+      followUp.follow_up_date && followUp.follow_up_date < today
+  );
+  const notificationTodayFollowUps = notificationOpenFollowUps.filter(
+    (followUp) => followUp.follow_up_date === today
+  );
+
+  function openNotificationFollowUps(filter: "today" | "overdue") {
+    if (!isAdmin || notificationPreferences.scope === "mine") {
+      setAssignedToFilter(currentTeamMember?.id || "all");
+    } else if (notificationPreferences.scope === "member") {
+      setAssignedToFilter(notificationPreferences.memberId || "all");
+    } else {
+      setAssignedToFilter("all");
+    }
+    setFollowUpFilter(filter);
+    setPage("followups");
+  }
+
   useEffect(() => {
     if (
       loading ||
       !session ||
       !followUpAlertsEnabled ||
-      !("Notification" in window) ||
-      Notification.permission !== "granted"
+      (!notificationPreferences.notifyToday &&
+        !notificationPreferences.notifyOverdue)
     ) {
       return;
     }
@@ -1912,47 +2029,58 @@ if (result.error) {
       body: string,
       filter: "today" | "overdue"
     ) {
+      if (
+        !notificationPreferences.desktop ||
+        !("Notification" in window) ||
+        Notification.permission !== "granted"
+      ) {
+        return;
+      }
+
       const notification = new Notification(title, {
         body,
         tag: `crm-${filter}-${today}`,
       });
       notification.onclick = () => {
         window.focus();
-        setFollowUpFilter(filter);
-        setPage("followups");
+        openNotificationFollowUps(filter);
         notification.close();
       };
     }
 
-    const overdueKey = `crm-overdue-alert-${today}`;
-    const todayKey = `crm-today-alert-${today}`;
+    const accountKey = session.user.id;
+    const scopeKey = `${notificationPreferences.scope}-${notificationPreferences.memberId || "none"}`;
+    const overdueKey = `crm-overdue-alert-${accountKey}-${scopeKey}-${today}`;
+    const todayKey = `crm-today-alert-${accountKey}-${scopeKey}-${today}`;
 
     if (
-      overdueFollowUps.length > 0 &&
+      notificationPreferences.notifyOverdue &&
+      notificationOverdueFollowUps.length > 0 &&
       window.localStorage.getItem(overdueKey) !== "shown"
     ) {
       showNotification(
         "Overdue Follow-ups",
-        `${overdueFollowUps.length} follow-up${overdueFollowUps.length === 1 ? " is" : "s are"} overdue. Click to review.`,
+        `${notificationOverdueFollowUps.length} follow-up${notificationOverdueFollowUps.length === 1 ? " is" : "s are"} overdue. Click to review.`,
         "overdue"
       );
-      playFollowUpAlert("overdue");
+      if (notificationPreferences.sound) playFollowUpAlert("overdue");
       window.localStorage.setItem(overdueKey, "shown");
     }
 
     if (
-      todayFollowUps.length > 0 &&
+      notificationPreferences.notifyToday &&
+      notificationTodayFollowUps.length > 0 &&
       window.localStorage.getItem(todayKey) !== "shown"
     ) {
       const timer = window.setTimeout(() => {
         showNotification(
           "Follow-ups Due Today",
-          `${todayFollowUps.length} follow-up${todayFollowUps.length === 1 ? " is" : "s are"} due today. Click to review.`,
+          `${notificationTodayFollowUps.length} follow-up${notificationTodayFollowUps.length === 1 ? " is" : "s are"} due today. Click to review.`,
           "today"
         );
-        playFollowUpAlert("today");
+        if (notificationPreferences.sound) playFollowUpAlert("today");
         window.localStorage.setItem(todayKey, "shown");
-      }, overdueFollowUps.length > 0 ? 900 : 0);
+      }, notificationOverdueFollowUps.length > 0 ? 900 : 0);
 
       return () => window.clearTimeout(timer);
     }
@@ -1960,9 +2088,10 @@ if (result.error) {
     loading,
     session,
     followUpAlertsEnabled,
+    notificationPreferences,
     today,
-    overdueFollowUps.length,
-    todayFollowUps.length,
+    notificationOverdueFollowUps.length,
+    notificationTodayFollowUps.length,
   ]);
 
 const filteredFollowUps =
@@ -2144,15 +2273,18 @@ if (!session) {
           </div>
         )}
 
-        {!loading && (todayFollowUps.length > 0 || overdueFollowUps.length > 0) && (
+        {!loading &&
+          followUpAlertsEnabled &&
+          ((notificationPreferences.notifyToday &&
+            notificationTodayFollowUps.length > 0) ||
+            (notificationPreferences.notifyOverdue &&
+              notificationOverdueFollowUps.length > 0)) && (
           <div className="mb-6 flex flex-wrap gap-3" role="status" aria-label="Follow-up notifications">
-            {todayFollowUps.length > 0 && (
+            {notificationPreferences.notifyToday &&
+              notificationTodayFollowUps.length > 0 && (
               <button
                 type="button"
-                onClick={() => {
-                  setFollowUpFilter("today");
-                  setPage("followups");
-                }}
+                onClick={() => openNotificationFollowUps("today")}
                 className="flex flex-1 items-center justify-between rounded-xl border border-orange-300 bg-orange-50 px-5 py-4 text-left text-orange-900 shadow-sm hover:bg-orange-100"
               >
                 <span>
@@ -2160,18 +2292,16 @@ if (!session) {
                   <span className="text-sm">Click to open today&apos;s follow-ups.</span>
                 </span>
                 <span className="rounded-full bg-orange-500 px-3 py-1 text-lg font-bold text-white">
-                  {todayFollowUps.length}
+                  {notificationTodayFollowUps.length}
                 </span>
               </button>
             )}
 
-            {overdueFollowUps.length > 0 && (
+            {notificationPreferences.notifyOverdue &&
+              notificationOverdueFollowUps.length > 0 && (
               <button
                 type="button"
-                onClick={() => {
-                  setFollowUpFilter("overdue");
-                  setPage("followups");
-                }}
+                onClick={() => openNotificationFollowUps("overdue")}
                 className="flex flex-1 items-center justify-between rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-left text-red-900 shadow-sm hover:bg-red-100"
               >
                 <span>
@@ -2179,7 +2309,7 @@ if (!session) {
                   <span className="text-sm">Click to review overdue follow-ups.</span>
                 </span>
                 <span className="rounded-full bg-red-600 px-3 py-1 text-lg font-bold text-white">
-                  {overdueFollowUps.length}
+                  {notificationOverdueFollowUps.length}
                 </span>
               </button>
             )}
@@ -2204,7 +2334,7 @@ if (!session) {
                   type="button"
                   onClick={
                     followUpAlertsEnabled
-                      ? disableFollowUpAlerts
+                      ? () => setShowNotificationSettings(true)
                       : enableFollowUpAlerts
                   }
                   className={
@@ -2213,7 +2343,7 @@ if (!session) {
                       : "rounded-lg border border-orange-300 bg-orange-50 px-4 py-3 font-medium text-orange-700 hover:bg-orange-100"
                   }
                 >
-                  {followUpAlertsEnabled ? "Alerts On" : "Enable Alerts"}
+                  {followUpAlertsEnabled ? "Alert Settings" : "Enable Alerts"}
                 </button>
                 <button
                   type="button"
@@ -3871,6 +4001,115 @@ if (!session) {
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {showNotificationSettings && (
+        <Modal
+          title="Notification Settings"
+          onClose={() => setShowNotificationSettings(false)}
+          maxWidth="max-w-2xl"
+        >
+          <div className="space-y-5">
+            <p className="text-sm text-gray-600">
+              These choices are saved separately for {currentTeamMember?.full_name || "this account"} on this device.
+            </p>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                ["notifyToday", "Follow-ups due today"],
+                ["notifyOverdue", "Overdue follow-ups"],
+                ["sound", "Alert sound"],
+                ["desktop", "Desktop popup"],
+              ].map(([field, label]) => (
+                <label key={field} className="flex items-center gap-3 rounded-lg border p-4">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(notificationPreferences[field as keyof NotificationPreferences])}
+                    onChange={(event) =>
+                      saveNotificationPreferences({
+                        ...notificationPreferences,
+                        [field]: event.target.checked,
+                      })
+                    }
+                    className="h-5 w-5"
+                  />
+                  <span className="font-medium">{label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">Notify Me About</label>
+              <select
+                value={isAdmin ? notificationPreferences.scope : "mine"}
+                onChange={(event) =>
+                  saveNotificationPreferences({
+                    ...notificationPreferences,
+                    scope: event.target.value as NotificationPreferences["scope"],
+                    memberId:
+                      event.target.value === "member"
+                        ? notificationPreferences.memberId
+                        : "",
+                  })
+                }
+                disabled={!isAdmin}
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 disabled:bg-gray-100"
+              >
+                <option value="mine">My assigned follow-ups only</option>
+                {isAdmin && <option value="all">All team follow-ups</option>}
+                {isAdmin && <option value="member">One selected salesperson</option>}
+              </select>
+            </div>
+
+            {isAdmin && notificationPreferences.scope === "member" && (
+              <SelectInput
+                label="Salesperson"
+                value={notificationPreferences.memberId}
+                onChange={(value) =>
+                  saveNotificationPreferences({
+                    ...notificationPreferences,
+                    memberId: value,
+                  })
+                }
+                options={teamMembers
+                  .filter((member) => member.active)
+                  .map((member) => ({ value: member.id, label: member.full_name }))}
+                placeholder="Select salesperson"
+              />
+            )}
+
+            <div className="flex flex-wrap justify-between gap-3 border-t pt-5">
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => playFollowUpAlert("today")}
+                  className="rounded-lg border px-4 py-2 hover:bg-gray-50"
+                >
+                  Test Sound
+                </button>
+                {followUpAlertsEnabled && (
+                  <button
+                    type="button"
+                    onClick={disableFollowUpAlerts}
+                    className="rounded-lg border border-red-300 px-4 py-2 text-red-700 hover:bg-red-50"
+                  >
+                    Disable Alerts
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!followUpAlertsEnabled) await enableFollowUpAlerts();
+                  setShowNotificationSettings(false);
+                }}
+                className="rounded-lg bg-green-600 px-5 py-2 font-medium text-white hover:bg-green-700"
+              >
+                Save Settings
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
 
