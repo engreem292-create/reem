@@ -69,17 +69,25 @@ export default function TeamMembersSection({
 
   const today = getTodayString();
 
-  const tenderStatusIds = useMemo(
-    () =>
-      new Set(
-        statuses
-          .filter((status) =>
-            status.name.toLowerCase().includes("tender")
-          )
-          .map((status) => status.id)
-      ),
-    [statuses]
-  );
+  const statusGroups = useMemo(() => {
+    const ids = {
+      tender: new Set<string>(),
+      won: new Set<string>(),
+      lost: new Set<string>(),
+    };
+
+    statuses.forEach((status) => {
+      const name = status.name.trim().toLowerCase();
+
+      if (name.includes("tender")) ids.tender.add(status.id);
+      if (name === "won" || name === "awarded" || name === "awarded / won") {
+        ids.won.add(status.id);
+      }
+      if (name === "lost") ids.lost.add(status.id);
+    });
+
+    return ids;
+  }, [statuses]);
 
   function getMemberStats(memberId: string) {
     const memberProjects = projects.filter(
@@ -97,13 +105,27 @@ export default function TeamMembersSection({
     );
 
     return {
+      totalAssigned: memberProjects.length,
       activeProjects: memberProjects.filter(
         (project) => !project.hidden
       ).length,
       tenders: memberProjects.filter((project) =>
         project.status_id
-          ? tenderStatusIds.has(project.status_id)
+          ? statusGroups.tender.has(project.status_id)
           : false
+      ).length,
+      won: memberProjects.filter((project) =>
+        project.status_id
+          ? statusGroups.won.has(project.status_id)
+          : false
+      ).length,
+      lost: memberProjects.filter((project) =>
+        project.status_id
+          ? statusGroups.lost.has(project.status_id)
+          : false
+      ).length,
+      openFollowUps: memberFollowUps.filter(
+        (followUp) => !followUp.completed
       ).length,
       overdue: memberFollowUps.filter(
         (followUp) =>
@@ -115,6 +137,9 @@ export default function TeamMembersSection({
         (followUp) =>
           !followUp.completed &&
           followUp.follow_up_date === today
+      ).length,
+      completedFollowUps: memberFollowUps.filter(
+        (followUp) => followUp.completed
       ).length,
     };
   }
@@ -308,11 +333,16 @@ export default function TeamMembersSection({
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+                <Stat label="Total Assigned" value={stats.totalAssigned} />
                 <Stat label="Active Projects" value={stats.activeProjects} />
                 <Stat label="Tenders" value={stats.tenders} />
+                <Stat label="Won / Awarded" value={stats.won} success />
+                <Stat label="Lost" value={stats.lost} danger />
+                <Stat label="Open Follow-ups" value={stats.openFollowUps} />
                 <Stat label="Overdue" value={stats.overdue} danger />
                 <Stat label="Today" value={stats.today} />
+                <Stat label="Completed Follow-ups" value={stats.completedFollowUps} success />
               </div>
             </div>
           );
@@ -412,10 +442,12 @@ function Stat({
   label,
   value,
   danger = false,
+  success = false,
 }: {
   label: string;
   value: number;
   danger?: boolean;
+  success?: boolean;
 }) {
   return (
     <div className="rounded-lg bg-gray-50 p-3">
@@ -424,7 +456,9 @@ function Stat({
         className={
           danger && value > 0
             ? "mt-1 text-2xl font-bold text-red-600"
-            : "mt-1 text-2xl font-bold"
+            : success && value > 0
+              ? "mt-1 text-2xl font-bold text-green-600"
+              : "mt-1 text-2xl font-bold"
         }
       >
         {value}
